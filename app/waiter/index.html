@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Waiter Pad — Ordering</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/app/waiter/waiter.css">
+<style>
+  .waiter-dropdown-item:hover {
+    background: var(--bg-hover, #f5f2eb) !important;
+  }
+  .waiter-menu-btn:hover {
+    background: var(--bg-hover, #f5f2eb) !important;
+    color: var(--text-primary) !important;
+  }
+</style>
+</head>
+<body>
+  <!-- ─── Category Drawer Overlay ─── -->
+  <div class="drawer-overlay" id="drawerOverlay"></div>
+
+  <!-- ─── Category Drawer (slide-in from left) ─── -->
+  <nav class="category-drawer" id="categoryDrawer">
+    <div class="drawer-header">
+      <span class="drawer-title">Menu</span>
+      <button class="drawer-close" id="drawerClose" title="Close">✕</button>
+    </div>
+    <div class="drawer-tabs" id="drawerTabs">
+      <button class="drawer-tab active" data-category="starters">
+        <span class="drawer-tab-label">Starters</span>
+      </button>
+      <button class="drawer-tab" data-category="mains">
+        <span class="drawer-tab-label">Mains</span>
+      </button>
+      <button class="drawer-tab" data-category="desserts">
+        <span class="drawer-tab-label">Desserts</span>
+      </button>
+      <button class="drawer-tab" data-category="drinks">
+        <span class="drawer-tab-label">Drinks</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ─── Header ─── -->
+  <header class="waiter-header">
+    <div class="header-left">
+      <button class="hamburger-btn" id="hamburgerBtn" title="Menu Categories">Menu</button>
+      <span class="table-badge" id="tableBadge">Table 01</span>
+      <button class="table-map-btn" id="tableMapBtn" title="Choose table from floor map" style="background:none;border:none;font-size:1.15rem;cursor:pointer;padding:4px 6px;border-radius:6px;color:var(--text-secondary);line-height:1;">🗺</button>
+      <button class="table-phone-chip" id="tablePhoneChip" title="Customer phone for this table — tap to change" style="display:none;">📱 <span id="tablePhoneText"></span></button>
+    </div>
+    <div class="header-center">
+      <span class="header-category-label" id="headerCategoryLabel">Starters</span>
+    </div>
+    <div class="header-right">
+      <button class="orders-toggle" id="ordersToggle" title="View Orders">Orders</button>
+      <div class="waiter-actions-menu" style="position:relative;display:inline-block;">
+        <button class="waiter-menu-btn" id="waiterMenuBtn" title="More Options" style="background:none;border:none;color:var(--text-secondary);font-size:1.4rem;cursor:pointer;padding:4px 8px;border-radius:6px;transition:background 0.15s;line-height:1;">⋮</button>
+        <div class="waiter-dropdown" id="waiterDropdown" style="display:none;position:absolute;right:0;top:100%;background:var(--bg-card);border:1px solid var(--border-color);border-radius:10px;box-shadow:var(--shadow-lg);z-index:100;min-width:240px;padding:6px;margin-top:4px;">
+          <button class="waiter-dropdown-item" id="waiterRequestIngredient" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
+            <span style="font-size:1.1rem;">📦</span>
+            <span>Report Missing Ingredient</span>
+          </button>
+          <button class="waiter-dropdown-item" id="waiterSendBackDish" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
+            <span style="font-size:1.1rem;">↩️</span>
+            <span>Send Back Dish</span>
+          </button>
+          <button class="waiter-dropdown-item" id="waiterHelpReport" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
+            <span style="font-size:1.1rem;">🆘</span>
+            <span>Help / Report an Issue</span>
+          </button>
+          <div style="height:1px;background:var(--border-color);margin:4px 10px;"></div>
+          <button class="waiter-dropdown-item" id="waiterRefreshOrders" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
+            <span style="font-size:1.1rem;">🔄</span>
+            <span>Refresh Orders</span>
+          </button>
+          <button class="waiter-dropdown-item" id="waiterCloseTable" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
+            <span style="font-size:1.1rem;">🧾</span>
+            <span>Close Table (Bill Paid)</span>
+          </button>
+          <div style="height:1px;background:var(--border-color);margin:4px 10px;"></div>
+          <div style="padding:8px 14px;">
+            <div style="font-size:0.72rem;color:var(--text-muted);font-weight:600;margin-bottom:6px;">👤 Your name (shown on orders)</div>
+            <input type="text" id="waiterNameInput" maxlength="20" placeholder="e.g. Rahul" autocomplete="off"
+              style="width:100%;padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;font-size:0.85rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);box-sizing:border-box;" />
+          </div>
+        </div>
+      </div>
+      <span class="connection-dot" id="connDot" title="Connection Status"></span>
+    </div>
+  </header>
+
+  <div class="waiter-layout">
+    <!-- ─── Main Content (Menu) ─── -->
+    <div class="waiter-main">
+      <!-- ─── Menu Grid ─── -->
+      <section class="menu-grid-container">
+        <div class="menu-grid" id="menuGrid"></div>
+        <div class="menu-loading" id="menuLoading">Loading menu...</div>
+      </section>
+    </div>
+
+    <!-- ─── Sidebar: Live Item Tracker ─── -->
+    <aside class="waiter-sidebar" id="waiterSidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Live Tracker</span>
+        <button class="sidebar-toggle" id="sidebarToggle" title="Collapse">◀</button>
+      </div>
+      <div class="sidebar-items" id="sidebarItems">
+        <div class="sidebar-empty">
+          <span>No active items — place an order to see tracking here</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ─── Basket Summary ─── -->
+  <section class="basket-bar" id="basketBar">
+    <div class="basket-info">
+      <span class="basket-label">Basket</span>
+      <span class="basket-count" id="basketCount">0 items</span>
+      <span class="basket-total" id="basketTotal">₹0.00</span>
+    </div>
+    <button class="btn btn-primary btn-send" id="sendBtn" disabled>
+      Send to Kitchen →
+    </button>
+  </section>
+
+  <!-- ─── Modifier Modal ─── -->
+  <div class="modal-overlay" id="modifierModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalItemName">Item Name</h3>
+        <span class="modal-price" id="modalItemPrice">₹0.00</span>
+      </div>
+      <div class="modal-body">
+        <label for="modifierInput">Special Instructions / Modifiers</label>
+        <textarea
+          id="modifierInput"
+          rows="3"
+          placeholder="e.g., No onions, extra spicy, ice on the side..."
+        ></textarea>
+        <div class="quick-modifiers">
+          <button class="quick-mod" data-mod="No onions">No onions</button>
+          <button class="quick-mod" data-mod="Extra spicy">Extra spicy</button>
+          <button class="quick-mod" data-mod="Less oil">Less oil</button>
+          <button class="quick-mod" data-mod="Well done">Well done</button>
+          <button class="quick-mod" data-mod="Ice on side">Ice on side</button>
+          <button class="quick-mod" data-mod="No ice">No ice</button>
+        </div>
+        <div class="quantity-control">
+          <button class="qty-btn" id="qtyDec">−</button>
+          <span class="qty-value" id="qtyValue">1</span>
+          <button class="qty-btn" id="qtyInc">+</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modalSkip">Skip &amp; Add</button>
+        <button class="btn btn-primary" id="modalAdd">Add to Basket</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Basket Modal ─── -->
+  <div class="modal-overlay" id="basketModal">
+    <div class="modal-content modal-basket">
+      <div class="modal-header">
+        <h3>Your Basket</h3>
+        <span class="modal-price" id="basketModalTotal">₹0.00</span>
+      </div>
+      <div class="modal-body">
+        <div id="basketItems"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="basketClose">Continue Ordering</button>
+        <button class="btn btn-primary" id="basketSend">Send to Kitchen →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Orders Panel ─── -->
+  <div class="modal-overlay" id="ordersModal">
+    <div class="modal-content modal-orders">
+      <div class="modal-header">
+        <h3>Orders — Table <span id="ordersTableNum">01</span></h3>
+        <button class="btn-icon" id="ordersClose" title="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="orders-list" id="ordersList">
+          <div class="orders-loading">Loading orders...</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="ordersNewOrder">← New Order</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Edit Order Modal ─── -->
+  <div class="modal-overlay" id="editOrderModal">
+    <div class="modal-content modal-edit-order">
+      <div class="modal-header">
+        <div>
+          <h3>Edit Order #<span id="editOrderId"></span></h3>
+          <span class="edit-order-table">Table <span id="editOrderTable"></span></span>
+        </div>
+        <span class="badge-status" id="editOrderStatus">pending</span>
+      </div>
+      <div class="modal-body">
+        <!-- Current items in the order -->
+        <div class="edit-section">
+          <label class="edit-section-label">Current Items</label>
+          <div id="editOrderItems" class="edit-items-list"></div>
+        </div>
+
+        <!-- Add items from menu -->
+        <div class="edit-section">
+          <label class="edit-section-label">Add Items from Menu</label>
+          <div class="edit-category-tabs" id="editCategoryTabs">
+            <button class="edit-cat-tab active" data-category="starters">Starters</button>
+            <button class="edit-cat-tab" data-category="mains">Mains</button>
+            <button class="edit-cat-tab" data-category="desserts">Desserts</button>
+            <button class="edit-cat-tab" data-category="drinks">Drinks</button>
+          </div>
+          <div class="edit-menu-grid" id="editMenuGrid"></div>
+        </div>
+
+        <!-- Quick modifier for new items -->
+        <div class="edit-section" id="editAddSection" style="display:none;">
+          <label class="edit-section-label">Modifiers for <span id="editAddItemName"></span></label>
+          <textarea id="editAddModifier" rows="2" placeholder="e.g., No onions, extra spicy..."></textarea>
+          <div class="edit-quick-mods">
+            <button class="quick-mod" data-mod="No onions">No onions</button>
+            <button class="quick-mod" data-mod="Extra spicy">Extra spicy</button>
+            <button class="quick-mod" data-mod="Less oil">Less oil</button>
+            <button class="quick-mod" data-mod="Well done">Well done</button>
+            <button class="quick-mod" data-mod="Ice on side">Ice on side</button>
+            <button class="quick-mod" data-mod="No ice">No ice</button>
+          </div>
+          <div class="quantity-control">
+            <button class="qty-btn" id="editAddQtyDec">−</button>
+            <span class="qty-value" id="editAddQtyValue">1</span>
+            <button class="qty-btn" id="editAddQtyInc">+</button>
+          </div>
+          <button class="btn btn-primary" id="editAddConfirm" style="margin-top:12px;width:100%;">Add to Order</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="editOrderCancel">Cancel</button>
+        <button class="btn btn-primary" id="editOrderSave">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Ingredient Request Modal ─── -->
+  <div class="modal-overlay" id="waiterIngredientModal">
+    <div class="modal-content" style="max-width:420px;">
+      <div class="modal-header">
+        <h3>📦 Report Missing Ingredient</h3>
+        <button class="modal-close" id="waiterIngredientClose" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Ingredient Name</label>
+          <input type="text" id="waiterIngredientName" placeholder="e.g., Onion, Potato, Oil, Flour..." style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;" />
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Quantity Required</label>
+          <input type="text" id="waiterIngredientQty" placeholder="e.g., 2 dozen, 5 litres, 3x10 kgs..." style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;" />
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" id="waiterIngredientCancel">Cancel</button>
+        <button class="btn btn-primary" id="waiterIngredientSubmit">Submit Request</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Send Back Dish Modal ─── -->
+  <div class="modal-overlay" id="waiterSendBackModal">
+    <div class="modal-content" style="max-width:440px;">
+      <div class="modal-header">
+        <h3>↩️ Send Back Dish</h3>
+        <button class="modal-close" id="waiterSendBackClose" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Category</label>
+          <select id="waiterReturnCategory" style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;">
+            <option value="">Select category…</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Dish</label>
+          <select id="waiterReturnDishSelect" style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;">
+            <option value="">Select dish…</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Reason</label>
+          <input type="text" id="waiterReturnReason" placeholder="e.g., Overcooked, too spicy, wrong order..." style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;" />
+        </div>
+        <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group" style="margin-bottom:16px;">
+            <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Quantity</label>
+            <input type="number" id="waiterReturnQty" value="1" min="1" style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;" />
+          </div>
+          <div class="form-group" style="margin-bottom:16px;">
+            <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Dish Amount (₹) <span style="color:var(--text-muted);font-weight:400;">(auto from menu)</span></label>
+            <input type="number" id="waiterReturnAmount" placeholder="Select a dish" min="0" step="1" readonly style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-hover, rgba(0,0,0,0.03));color:var(--text-primary);transition:border-color 0.15s;" />
+          </div>
+        </div>
+        <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;font-size:0.82rem;color:#92400e;line-height:1.5;">
+          💡 This amount will be added to the <strong>Returns &amp; Wastage</strong> total shown in the Manager Analytics dashboard.
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" id="waiterSendBackCancel">Cancel</button>
+        <button class="btn btn-primary" id="waiterSendBackSubmit">📋 Report Return</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Help / Complaint Modal ─── -->
+  <div class="modal-overlay" id="waiterHelpModal">
+    <div class="modal-content" style="max-width:440px;">
+      <div class="modal-header">
+        <h3>🆘 Help / Report an Issue</h3>
+        <button class="modal-close" id="waiterHelpClose" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Title</label>
+          <input type="text" id="waiterHelpTitle" placeholder="e.g., Printer not working at counter, Broken AC in section B..." style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;" />
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Description</label>
+          <textarea id="waiterHelpDesc" rows="3" placeholder="Describe the issue in detail so the manager can act on it..." style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" id="waiterHelpCancel">Cancel</button>
+        <button class="btn btn-primary" id="waiterHelpSubmit">Submit Report</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Table Map Picker ─── -->
+  <div class="modal-overlay" id="tableMapModal">
+    <div class="modal-content" style="max-width:660px;">
+      <div class="modal-header">
+        <h3>Choose Table</h3>
+        <button class="modal-close" id="tableMapClose" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="table-map-box" id="tableMapCanvas"></div>
+        <p class="map-picker-hint" id="tableMapHint" style="display:none;color:var(--text-muted);font-size:0.82rem;text-align:center;margin-top:10px;">No floor map yet — ask the manager to set one up, or tap the table number to type it.</p>
+        <p style="color:var(--text-muted);font-size:0.75rem;text-align:center;margin-top:8px;">🟡 yet to order · 🔴 ordered · 🟢 delivered · tap a table to switch</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="tableMapCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Customer Phone Modal ─── -->
+  <div class="modal-overlay" id="waiterPhoneModal">
+    <div class="modal-content" style="max-width:380px;">
+      <div class="modal-header">
+        <h3>📱 Customer Phone</h3>
+        <button class="modal-close" id="waiterPhoneClose" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Phone number (earns loyalty points)</label>
+          <input type="tel" id="waiterPhoneInput" maxlength="10" inputmode="numeric" autocomplete="off" placeholder="e.g. 9867474974" style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);box-sizing:border-box;" />
+        </div>
+        <div class="form-group" style="margin-bottom:4px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Customer name (optional)</label>
+          <input type="text" id="waiterPhoneName" maxlength="30" autocomplete="off" placeholder="e.g. Rahul" style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);box-sizing:border-box;" />
+        </div>
+        <p style="font-size:0.78rem;color:var(--text-muted);margin-top:10px;">One phone per table — every order from Table <span id="waiterPhoneTableLabel">01</span> earns points for this customer until you close the table.</p>
+      </div>
+      <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" id="waiterPhoneClear" style="display:none;">Clear</button>
+        <button class="btn btn-secondary" id="waiterPhoneCancel">Cancel</button>
+        <button class="btn btn-primary" id="waiterPhoneSave">Assign</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Toast Container ─── -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ─── Scripts ─── -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app/js/socket-client.js"></script>
+  <script src="/app/js/table-map.js"></script>
+  <script src="/app/waiter/waiter.js"></script>
+  <script src="/app/js/license-client.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
+  </script>
+</body>
+</html>

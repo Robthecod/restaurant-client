@@ -1,0 +1,280 @@
+=========================================================================
+ CHAUKA LOYALTY SYSTEM — SETUP & COMPLETE GUIDE
+=========================================================================
+Phone-number based loyalty: guests earn points on delivered orders, redeem
+them for free items or bill discounts, and the manager controls all the
+rules. No app to install, no plastic cards — just a phone number.
+
+-------------------------------------------------------------------------
+1. WHAT IT IS (30-SECOND OVERVIEW)
+-------------------------------------------------------------------------
+- Every customer is identified by their 10-digit phone number.
+- Points are earned when an order is DELIVERED (not when placed), so only
+  completed orders count.
+- Earning rate: 1 point per Rs.1 spent (before tier multiplier).
+- Redemption options:
+    a) FREE ITEM   — any menu item whose price fits your balance
+                     (Rs.120 item = 120 points). This is the good deal.
+    b) BILL DISCOUNT — spend 10% of the bill in points for 5% off.
+                     (Deliberately 2x worse value than free items, so
+                      guests are steered toward item redemptions.)
+- Tiers multiply earnings: Silver x1, Gold x1.5, Platinum x2, based on
+  lifetime spend.
+- Extra bonuses: birthday bonus (200 pts) and a visit-streak bonus
+  (every 5th visit = 50 pts).
+
+-------------------------------------------------------------------------
+2. HOW IT WORKS FOR EVERYONE
+-------------------------------------------------------------------------
+CUSTOMER (QR self-ordering screen, /app/customer/)
+  - A "Enter phone to earn points" field sits at the top of the menu.
+  - New number  -> "Set up loyalty" form: name (optional), birthday
+                   (optional), and a WhatsApp opt-in checkbox.
+  - Existing    -> balance banner appears: tier, points, "approx Rs.X
+                   off" value, and a "Get my points on WhatsApp" button.
+  - The phone is remembered on the device (localStorage), so returning
+    guests see their balance automatically.
+  - When ordering: tap the gift button on the cart bar to redeem.
+    Free items are added to the order as "Rewarded with points".
+    The bill discount is a checkbox in the same sheet.
+  - After placing an order the screen shows "You'll earn ~N pts".
+  - When the kitchen marks the order delivered, points land instantly
+    (live socket update) and a toast announces the new balance.
+
+WAITER (waiter pad, /app/waiter/)
+  - The basket/send modal has a "Loyalty" row: customer phone (optional).
+  - "Look up" shows the customer's tier + balance, or flags a new
+    customer. Points attach to the order automatically.
+  - Leave it blank to skip loyalty for walk-in orders.
+
+MANAGER (manager panel, /app/manager/ -> Loyalty tab)
+  - RULES card: points-per-rupee, discount percentages, birthday bonus,
+    streak bonus, and the tier table (min spend + multiplier each).
+    Save applies instantly to all screens.
+  - CUSTOMERS card: every profile sorted by points (name, phone, tier,
+    points, lifetime spend, visits, WhatsApp opt-in badge, Message link).
+  - LEDGER card: the full points activity feed (earn / birthday /
+    streak / free-item / discount), newest first.
+  - WHATSAPP card: opted-in count, "Copy numbers" for broadcasts, and a
+    hint when WHATSAPP_NUMBER is not configured.
+
+-------------------------------------------------------------------------
+3. POINTS & MONEY MATH (exact formulas)
+-------------------------------------------------------------------------
+EARNING (on delivery):
+    base  = floor( orderTotal / 100 x pointsPerHundred )  [e.g. 100 pts per Rs.100]
+    earn  = floor( base x tierMultiplier )
+    +birthday bonus (if their MM-DD birthday is today)
+
+VISITS = TABLE SESSIONS (not orders):
+    The waiter assigns a phone to a table ONCE (header chip / 3-dot menu).
+    Every order from that table automatically earns points for that
+    customer — no per-order phone entry. When the table is closed (bill
+    paid), the customer's visit count increases by exactly 1 and the
+    visit-streak bonus (+50 pts) is awarded on every Nth visit. Closing a
+    table with a wrong phone or no orders does not count a visit.
+
+    orderTotal = sum of item prices, EXCLUDING redeemed free items and
+    their modifiers. Discounts on the bill do not reduce earning.
+
+REDEEMING — FREE ITEM:
+    cost = item price in rupees = points (Rs.120 item = 120 pts).
+    Only items with cost <= current balance are offered.
+    Deducted immediately at order placement (not on delivery).
+
+REDEEMING — BILL DISCOUNT:
+    spend    = min( balance, floor( billTotal x 0.10 ) )   [10% of bill]
+    discount = floor( spend x 0.50 )                        [5% off bill]
+    Example: Rs.538 bill, 857 pts -> spend 53 pts -> Rs.26 off.
+    (Hint shown in the UI: "a discount costs 2x the points".)
+
+BALANCE RULES:
+    - Points never expire (currently).
+    - Redemptions are checked against the balance server-side; if the
+      balance is short, the order is rejected with a clear message.
+    - An order can combine free items AND a discount in one go.
+
+-------------------------------------------------------------------------
+4. THE APIs
+-------------------------------------------------------------------------
+PUBLIC (customer screen):
+  GET  /api/loyalty/settings
+       -> earning rules + whatsappNumber (null when unset)
+  POST /api/loyalty/register
+       body: { phone, name?, birthday?, whatsappOptIn? }
+       -> 201 customer profile (or 400 without a valid phone)
+  GET  /api/loyalty/status?phone=...
+       -> { exists:false } or { exists:true, customer:{...} }
+
+MANAGER:
+  GET  /api/loyalty/customers   -> all profiles (public shape)
+  GET  /api/loyalty/ledger?limit=50  -> activity feed (max 200)
+  POST /api/loyalty/settings    -> update rules
+       body: { pointsPerHundred, discountSpendPct, discountValuePct,
+               birthdayBonus, streakEvery, streakBonus, tiers:[...] }
+
+TABLE SESSIONS (loyalty phone per table):
+  GET  /api/tables               -> open sessions
+  GET  /api/tables/:table        -> one session (customer screen prefill)
+  POST /api/tables/:table/assign   { phone, name? } -> attach phone to table
+  POST /api/tables/:table/close    -> bill paid: clear phone, count the visit
+  POST /api/tables/:table/clear    -> remove phone WITHOUT counting a visit
+       (use when the wrong number was entered — /close would award a visit)
+  Orders automatically pick up the table's phone — no per-order entry.
+
+ORDER INTEGRATION (server handles this automatically):
+  POST /api/orders/customer   (customer screen)
+       extra body: { customerPhone, redeemItems:[{name,points}], useDiscount }
+  POST /api/orders            (waiter pad)
+       extra body: { customerPhone }
+  Points are awarded by the server when an order becomes 'delivered'
+  (guarded so an order can only ever be awarded once).
+  Order response includes: loyaltyCustomer, grossTotal, paidTotal,
+  discount, discountPoints.
+
+REALTIME:
+  socket 'loyalty_updated'  -> customer balance changed (customer screen)
+  socket 'loyalty_settings_updated' -> rules changed (all screens)
+
+-------------------------------------------------------------------------
+5. DATA STORAGE
+-------------------------------------------------------------------------
+File: data/customers.json   (git-ignored local data, same pattern as
+                              orders/menu/kitchen)
+
+Shape:
+{
+  "nextCustomerId": 2,
+  "nextLedgerId": 10,
+  "settings": { ...defaults below... },
+  "customers": [
+    {
+      "id": 1,
+      "phone": "9876543210",      // 10 digits, normalized
+      "name": "Amit",
+      "birthday": "08-16",        // MM-DD (YYYY-MM-DD is auto-converted)
+      "whatsappOptIn": true,
+      "points": 763,
+      "totalSpent": 657,          // lifetime, redeemed items excluded
+      "visits": 1,
+      "tier": "silver",           // silver | gold | platinum
+      "pointsEarned": 857,
+      "pointsRedeemed": 94,
+      "createdAt": "2026-08-16T17:00:00.000Z",
+      "lastVisitAt": "2026-08-16T17:00:00.000Z"
+    }
+  ],
+  "ledger": [
+    { "id": 1, "customerId": 1, "phone": "...", "type": "earn",
+      "points": 857, "orderId": 42, "description": "...",
+      "createdAt": "..." }
+  ]
+}
+
+Ledger types: earn | birthday | streak | redeem_item | redeem_discount
+Ledger is capped at the 500 most recent entries.
+
+DEFAULT SETTINGS (manager can change all of these):
+  pointsPerHundred: 100      (100 pts per Rs.100)
+  discountSpendPct: 0.1      (discount spends 10% of bill in points)
+  discountValuePct: 0.5      (each point = Rs.0.50 off -> 5% total)
+  birthdayBonus: 200
+  streakEvery: 5
+  streakBonus: 50
+  tiers: Silver (min Rs.0, x1) / Gold (min Rs.5,000, x1.5) /
+         Platinum (min Rs.15,000, x2)
+
+-------------------------------------------------------------------------
+6. WHATSAPP (free path — no API, no fees)
+-------------------------------------------------------------------------
+The system uses plain wa.me deep links. Nothing is sent automatically.
+
+SETUP:
+  1. .env next to server.js:
+       WHATSAPP_NUMBER=919876543210
+     (digits only, country code first, no + or spaces. Unset = the
+      WhatsApp features are hidden everywhere.)
+
+WHAT IT ENABLES:
+  - Customer screen: green "Get my points on WhatsApp" button in the
+    balance banner -> opens a chat with the restaurant, balance
+    pre-filled. Works from anywhere (WhatsApp is cloud-based).
+  - Customer signup: "Send my points updates & offers on WhatsApp"
+    opt-in checkbox. Stored on the profile.
+  - Manager -> Loyalty -> WhatsApp card:
+      * "X of Y customers opted in"
+      * "Copy numbers" -> copies 91XXXXXXXXXX,... for pasting into
+        WhatsApp Business app -> New broadcast (send offers manually)
+      * Per-customer "Message" links (balance + offer pre-filled)
+
+WHO CAN BE BROADCAST TO:
+  Only customers who ticked the opt-in checkbox. This keeps your number
+  safe from WhatsApp blocks and is the legitimate way to message.
+
+PAID AUTOMATION (future option, not built):
+  Auto-sending points messages on delivery, or one-click broadcasts,
+  requires the WhatsApp Business API (~Rs.0.4-1.5 per message in
+  India). The structure is ready for it but it is not wired up.
+
+-------------------------------------------------------------------------
+7. SETUP CHECKLIST
+-------------------------------------------------------------------------
+[ ] Server running with loyalty enabled (it is, by default — no flag)
+[ ] data/customers.json exists (created automatically on first run)
+[ ] Manager: open /app/manager/ -> Loyalty tab -> set the rules you
+    want (tiers, points-per-rupee, bonuses) -> Save Rules
+[ ] WhatsApp (optional): put WHATSAPP_NUMBER in .env, restart server
+[ ] Waiter pads: the loyalty row is already in the basket modal
+[ ] Customer QR: print /app/customer/?table=NN — loyalty field is on
+    the menu screen automatically
+[ ] Test: place an order with a phone on the waiter pad -> deliver it
+    from the KDS -> check the points landed in /api/loyalty/status
+    and in the manager's Customers card
+
+-------------------------------------------------------------------------
+8. TROUBLESHOOTING
+-------------------------------------------------------------------------
+"Points didn't land after delivery"
+  - The order must be marked 'delivered' (status change, not just
+    cooking/ready).
+  - Each order can only be awarded once (loyaltyAwarded flag).
+  - Check the order has a customerPhone (waiter left the field blank?).
+
+"Birthday bonus didn't fire"
+  - Birthday must be stored as MM-DD (the UI now converts YYYY-MM-DD
+    automatically; older profiles may need re-entry).
+  - Bonus only fires on a delivery that happens ON the birthday date.
+
+"Redeem rejected / not enough points"
+  - Balances are checked server-side. The order is rejected with the
+    reason — reduce the free items or remove the discount.
+
+"Can't redeem — no gift button on cart"
+  - The gift button only appears once a customer is linked (they
+    entered their phone and their account exists).
+
+"Customer left the restaurant — can they check points?"
+  - Not today. The customer screen only works on the restaurant's
+    network. The manual path: customer messages the restaurant on
+    WhatsApp (the button saves the chat on their phone) and staff
+    replies from the manager's Loyalty tab.
+  - A public balance lookup page is a planned future option.
+
+"Where is the data?"
+  - data/customers.json on the restaurant's machine. Back it up along
+    with the other data files.
+
+-------------------------------------------------------------------------
+9. LIMITATIONS & ROADMAP
+-------------------------------------------------------------------------
+- Points never expire (no expiry rule yet).
+- No per-visit spend limits, no birthday-party offers, no referral
+  codes yet.
+- No self-service balance check from home (see troubleshooting above).
+- No automated WhatsApp sending (paid API option, not built).
+- Waiter-placed orders: the phone field is manual — a typo creates a
+  fresh profile. Re-lookup shows existing balances to catch this.
+
+=========================================================================
+END OF GUIDE
+=========================================================================
