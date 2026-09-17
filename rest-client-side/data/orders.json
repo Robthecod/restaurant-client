@@ -1,0 +1,580 @@
+{
+  "nextId": 56,
+  "orders": [
+    {
+      "id": 1,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Crispy Corn",
+          "quantity": 1,
+          "modifiers": "Add cheese",
+          "status": "ready"
+        },
+        {
+          "name": "Garlic Bread with Cheese",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Mushroom Kurkure",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-14T06:00:45.711Z",
+      "updatedAt": "2026-07-14T06:01:15.527Z"
+    },
+    {
+      "id": 2,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Garlic Bread with Cheese",
+          "quantity": 2,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-14T06:01:35.092Z",
+      "updatedAt": "2026-07-16T16:40:48.414Z"
+    },
+    {
+      "id": 3,
+      "tableNumber": "05",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [],
+      "status": "delivered",
+      "createdAt": "2026-07-14T06:01:43.524Z",
+      "updatedAt": "2026-07-14T06:04:12.337Z"
+    },
+    {
+      "id": 4,
+      "tableNumber": "05",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Spinach & Corn Soup",
+          "quantity": 3,
+          "modifiers": "1/2",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-14T06:01:57.103Z",
+      "updatedAt": "2026-07-14T06:04:02.095Z"
+    },
+    {
+      "id": 5,
+      "tableNumber": "05",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Hakka Noodles",
+          "quantity": 2,
+          "modifiers": "No onions",
+          "status": "ready"
+        },
+        {
+          "name": "Mushroom Kurkure",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-14T06:02:08.935Z",
+      "updatedAt": "2026-07-14T06:03:53.976Z"
+    },
+    {
+      "id": 6,
+      "tableNumber": "05",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Butter Naan",
+          "quantity": 1,
+          "modifiers": "Give schezwan chutney on side",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-14T06:02:46.930Z",
+      "updatedAt": "2026-07-14T06:04:32.572Z"
+    },
+    {
+      "id": 7,
+      "tableNumber": "05",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Veg Pasta in Red Sauce",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Fresh Lime Soda",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-14T06:03:15.145Z",
+      "updatedAt": "2026-07-14T06:04:47.513Z"
+    },
+    {
+      "id": 8,
+      "tableNumber": "01",
+      "waiterId": null,
+      "waiterName": "Customer",
+      "source": "customer",
+      "items": [
+        {
+          "name": "Paneer Butter Masala",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Dal Makhani",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-14T06:11:57.646Z",
+      "updatedAt": "2026-07-16T16:40:47.822Z"
+    },
+    {
+      "id": 10,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Garlic Bread with Cheese",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Paneer Tikka",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-14T15:26:18.617Z",
+      "updatedAt": "2026-07-16T16:40:47.039Z"
+    },
+    {
+      "id": 38,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Veg Biryani",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-17T11:09:30.296Z",
+      "updatedAt": "2026-07-17T11:09:52.898Z"
+    },
+    {
+      "id": 39,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Tomato Basil Soup",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-18T15:38:05.622Z",
+      "updatedAt": "2026-07-30T17:27:35.595Z"
+    },
+    {
+      "id": 40,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Fresh Lime Soda",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Buttermilk (Chaas)",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-07-30T17:27:11.946Z",
+      "updatedAt": "2026-07-30T17:27:37.170Z"
+    },
+    {
+      "id": 41,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [],
+      "status": "delivered",
+      "createdAt": "2026-07-30T17:28:14.774Z",
+      "updatedAt": "2026-07-30T17:28:32.979Z"
+    },
+    {
+      "id": 42,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Crispy Corn",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Masala Spring Rolls",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-16T17:37:41.588Z",
+      "updatedAt": "2026-08-16T17:44:54.123Z",
+      "customerPhone": "9867474974",
+      "grossTotal": 328,
+      "paidTotal": 328,
+      "loyaltyAwarded": true,
+      "loyaltyEarned": 328
+    },
+    {
+      "id": 43,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Masala Spring Rolls",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-16T17:37:48.259Z",
+      "updatedAt": "2026-08-16T17:44:53.395Z",
+      "grossTotal": 239,
+      "paidTotal": 239
+    },
+    {
+      "id": 44,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Crispy Corn",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Paneer Tikka",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Sweet Potato Fries",
+          "quantity": 2,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-17T16:53:02.859Z",
+      "updatedAt": "2026-08-17T16:56:07.149Z",
+      "customerPhone": "9867474974",
+      "grossTotal": 838,
+      "paidTotal": 838,
+      "loyaltyAwarded": true,
+      "loyaltyEarned": 838
+    },
+    {
+      "id": 45,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Chilli Paneer",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Veg Seekh Kabab",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-17T16:53:21.533Z",
+      "updatedAt": "2026-08-17T16:56:06.295Z",
+      "grossTotal": 554,
+      "paidTotal": 554
+    },
+    {
+      "id": 46,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Chilli Paneer",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Tomato Basil Soup",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Cheese Chilli Toast",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-17T16:57:43.781Z",
+      "updatedAt": "2026-08-17T16:58:04.251Z",
+      "customerPhone": "9867474974",
+      "grossTotal": 703,
+      "paidTotal": 703,
+      "loyaltyAwarded": true,
+      "loyaltyEarned": 3515000
+    },
+    {
+      "id": 47,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Sweet Potato Fries",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Chilli Paneer",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-17T16:59:03.115Z",
+      "updatedAt": "2026-08-17T16:59:21.852Z",
+      "customerPhone": "9867474974",
+      "grossTotal": 524,
+      "paidTotal": 524,
+      "loyaltyAwarded": true,
+      "loyaltyEarned": 2620000
+    },
+    {
+      "id": 48,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Veg Seekh Kabab",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-17T17:03:40.479Z",
+      "updatedAt": "2026-08-17T17:05:28.751Z",
+      "grossTotal": 255,
+      "paidTotal": 255
+    },
+    {
+      "id": 49,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Cheese Chilli Toast",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-17T17:05:18.846Z",
+      "updatedAt": "2026-08-17T17:05:29.398Z",
+      "customerPhone": "9867474974",
+      "grossTotal": 225,
+      "paidTotal": 225,
+      "loyaltyAwarded": true,
+      "loyaltyEarned": 10050
+    },
+    {
+      "id": 50,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Cheese Chilli Toast",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-17T17:06:39.536Z",
+      "updatedAt": "2026-08-17T17:06:48.548Z",
+      "customerPhone": "9867474974",
+      "grossTotal": 225,
+      "paidTotal": 225,
+      "loyaltyAwarded": true,
+      "loyaltyEarned": 110000
+    },
+    {
+      "id": 51,
+      "tableNumber": "02",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Crispy Corn",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Paneer Tikka",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-17T17:40:46.627Z",
+      "updatedAt": "2026-08-17T17:41:19.509Z",
+      "grossTotal": 388,
+      "paidTotal": 388
+    },
+    {
+      "id": 53,
+      "tableNumber": "01",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Crispy Corn",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Nachos Supreme",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "delivered",
+      "createdAt": "2026-08-17T17:49:06.669Z",
+      "updatedAt": "2026-08-17T17:51:44.111Z",
+      "grossTotal": 388,
+      "paidTotal": 388
+    },
+    {
+      "id": 54,
+      "tableNumber": "02",
+      "waiterId": 1,
+      "waiterName": "Waiter",
+      "items": [
+        {
+          "name": "Tomato Basil Soup",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        },
+        {
+          "name": "Cheese Chilli Toast",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "ready",
+      "createdAt": "2026-08-17T17:49:13.989Z",
+      "updatedAt": "2026-08-17T17:51:40.307Z",
+      "grossTotal": 404,
+      "paidTotal": 404
+    },
+    {
+      "id": 55,
+      "tableNumber": "02",
+      "waiterId": 1,
+      "waiterName": "Lol",
+      "items": [
+        {
+          "name": "Masala Spring Rolls",
+          "quantity": 1,
+          "modifiers": "",
+          "status": "ready"
+        }
+      ],
+      "status": "ready",
+      "createdAt": "2026-08-17T17:51:21.688Z",
+      "updatedAt": "2026-08-17T17:51:34.387Z",
+      "grossTotal": 239,
+      "paidTotal": 239
+    }
+  ]
+}

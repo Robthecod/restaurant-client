@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kitchen Display — KDS</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/app/kitchen/kitchen.css">
+<style>
+  .kds-dropdown-item:hover {
+    background: var(--bg-hover, #f5f2eb) !important;
+  }
+  .kds-menu-btn:hover {
+    background: var(--bg-hover, #f5f2eb) !important;
+    color: var(--text-primary) !important;
+  }
+</style>
+</head>
+<body>
+  <!-- ─── Header ─── -->
+  <header class="kds-header">
+    <div class="kds-header-left">
+      <span class="kds-title">Kitchen Display</span>
+      <span class="kds-time" id="kdsTime"></span>
+    </div>
+    <div class="kds-header-right">
+      <span class="kds-stats">
+        <span class="stat" id="statPending">0 pending</span>
+        <span class="stat-sep">·</span>
+        <span class="stat" id="statCooking">0 cooking</span>
+
+      </span>
+      <span class="connection-dot" id="connDot" title="Connection Status"></span>
+      <button class="kds-voice-btn" id="kdsVoiceBtn" title="Toggle voice announcements"
+        style="background:none;border:none;font-size:1.25rem;cursor:pointer;color:var(--text-secondary);padding:4px 6px;border-radius:6px;transition:background 0.15s;line-height:1;">🔊</button>
+      <div class="kds-actions-menu" style="position:relative;display:inline-block;">
+        <button class="kds-menu-btn" id="kdsMenuBtn" title="More Options" style="background:none;border:none;color:var(--text-secondary);font-size:1.4rem;cursor:pointer;padding:4px 8px;border-radius:6px;transition:background 0.15s;line-height:1;">⋮</button>
+        <div class="kds-dropdown" id="kdsDropdown" style="display:none;position:absolute;right:0;top:100%;background:var(--bg-card);border:1px solid var(--border-color);border-radius:10px;box-shadow:var(--shadow-lg);z-index:100;min-width:220px;padding:6px;margin-top:4px;">
+          <button class="kds-dropdown-item" id="kdsRequestIngredient" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
+            <span style="font-size:1.1rem;">📦</span>
+            <span>Report Missing Ingredient</span>
+          </button>
+          <button class="kds-dropdown-item" id="kdsHelpReport" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
+            <span style="font-size:1.1rem;">🆘</span>
+            <span>Help / Report an Issue</span>
+          </button>
+          <div style="height:1px;background:var(--border-color);margin:4px 10px;"></div>
+          <button class="kds-dropdown-item" id="kdsRefreshOrders" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
+            <span style="font-size:1.1rem;">🔄</span>
+            <span>Refresh Orders</span>
+          </button>
+          <div style="height:1px;background:var(--border-color);margin:4px 10px;"></div>
+          <button class="kds-dropdown-item" id="kdsVoiceToggle" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
+            <span style="font-size:1.1rem;">🔊</span>
+            <span>Voice Announcements: <b>On</b></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ─── Filter Tabs ─── -->
+  <nav class="kds-filters" id="kdsFilters">
+    <button class="filter-btn active" data-filter="all">All Orders</button>
+    <button class="filter-btn" data-filter="pending">Pending</button>
+    <button class="filter-btn" data-filter="cooking">Cooking</button>
+
+  </nav>
+
+  <!-- ─── Order Grid ─── -->
+  <section class="kds-orders" id="kdsOrders">
+    <div class="kds-empty" id="kdsEmpty">
+      <div class="empty-title">No Orders Yet</div>
+      <div class="empty-desc">Orders from waiters will appear here in real-time</div>
+    </div>
+  </section>
+
+  <!-- ─── New Order Sound (Web Audio API) ─── -->
+  <script>
+    var newOrderSound = (function () {
+      var ctx = null;
+      return function () {
+        try {
+          if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+          var osc = ctx.createOscillator();
+          var gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.setValueAtTime(880, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.3, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.3);
+        } catch (e) {}
+      };
+    })();
+  </script>
+
+  <!-- ─── Ingredient Request Modal ─── -->
+  <div class="modal-overlay" id="kdsIngredientModal">
+    <div class="modal-content" style="max-width:420px;">
+      <div class="modal-header">
+        <h3>📦 Report Missing Ingredient</h3>
+        <button class="modal-close" id="kdsIngredientClose" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Ingredient Name</label>
+          <input type="text" id="kdsIngredientName" placeholder="e.g., Onion, Potato, Oil, Flour..." style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;" />
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Quantity Required</label>
+          <input type="text" id="kdsIngredientQty" placeholder="e.g., 2 dozen, 5 litres, 3x10 kgs..." style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;" />
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" id="kdsIngredientCancel">Cancel</button>
+        <button class="btn btn-primary" id="kdsIngredientSubmit">Submit Request</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Help / Complaint Modal ─── -->
+  <div class="modal-overlay" id="kdsHelpModal">
+    <div class="modal-content" style="max-width:440px;">
+      <div class="modal-header">
+        <h3>🆘 Help / Report an Issue</h3>
+        <button class="modal-close" id="kdsHelpClose" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Title</label>
+          <input type="text" id="kdsHelpTitle" placeholder="e.g., Exhaust fan not working, Oil running low for fryer..." style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;" />
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Description</label>
+          <textarea id="kdsHelpDesc" rows="3" placeholder="Describe the issue in detail so the manager can act on it..." style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" id="kdsHelpCancel">Cancel</button>
+        <button class="btn btn-primary" id="kdsHelpSubmit">Submit Report</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Toast Container ─── -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ─── Lenis Smooth Scroll ──────────────────────────────────── -->
+  <script src="https://unpkg.com/lenis@1.3.25/dist/lenis.min.js"></script>
+  <script>
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.addEventListener('DOMContentLoaded', () => {
+        const lenis = new Lenis({
+          autoRaf: true,
+          duration: 1.2,
+          easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+          smoothWheel: true,
+          wheelMultiplier: 0.85,
+          touchMultiplier: 1,
+        });
+        window.__lenis = lenis;
+      });
+    }
+  </script>
+
+  <!-- ─── Scripts ─── -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app/js/socket-client.js"></script>
+  <script src="/app/kitchen/kitchen.js"></script>
+  <script src="/app/js/license-client.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
+  </script>
+</body>
+</html>
