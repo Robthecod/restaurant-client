@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manager Panel — Admin</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/app/manager/manager.css">
+</head>
+<body>
+  <!-- ─── Header ─── -->
+  <header class="mgr-header">
+    <div class="mgr-header-left">
+      <span class="mgr-title">Manager Panel</span>
+      <span class="mgr-subtitle" id="mgrSubtitle">Menu Administration</span>
+    </div>
+    <div class="mgr-header-right">
+      <!-- ─── Notification Bell ─── -->
+      <div class="mgr-notif-container" id="notifContainer">
+        <button class="mgr-notif-bell" id="notifBell" title="Notifications">
+          <span class="notif-icon">🔔</span>
+          <span class="notif-badge" id="notifBadge" style="display:none;">0</span>
+        </button>
+        <!-- ─── Notification Dropdown ─── -->
+        <div class="mgr-notif-dropdown" id="notifDropdown" style="display:none;">
+          <div class="notif-dropdown-header">
+            <span>Notifications</span>
+            <button class="notif-dropdown-close" id="notifDropdownClose">&times;</button>
+          </div>
+          <div class="notif-dropdown-body" id="notifDropdownBody">
+            <div class="notif-empty">No pending notifications</div>
+          </div>
+        </div>
+      </div>
+      <span class="sync-status" id="syncStatus">
+        <span class="sync-dot"></span>
+        <span id="syncLabel">Connected</span>
+      </span>
+      <span class="connection-dot" id="connDot" title="Connection Status"></span>
+    </div>
+  </header>
+
+  <!-- ─── Tab Navigation ─── -->
+  <div class="mgr-tabs">
+    <button class="mgr-tab active" data-tab="menu">Menu</button>
+    <button class="mgr-tab" data-tab="analytics">Analytics</button>
+    <button class="mgr-tab" data-tab="loyalty">Loyalty</button>
+    <button class="mgr-tab" data-tab="map">Map</button>
+  </div>
+
+  <!-- ─── Main Layout (Menu View) ─── -->
+  <div class="mgr-layout" id="menuView">
+    <!-- ─── Left Panel: Add Item Form ─── -->
+    <section class="mgr-panel mgr-form-panel reveal-spring">
+      <h2 class="panel-title">Add Menu Item</h2>
+      <form class="menu-form" id="menuForm">
+        <div class="form-group">
+          <label for="itemCategory">Category</label>
+          <select id="itemCategory" required>
+            <option value="starters">Starters</option>
+            <option value="mains" selected>Mains</option>
+            <option value="desserts">Desserts</option>
+            <option value="drinks">Drinks</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="itemName">Item Name</label>
+          <input
+            type="text"
+            id="itemName"
+            placeholder="e.g., Grilled Salmon"
+            required
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="itemPrice">Price (₹)</label>
+          <input
+            type="number"
+            id="itemPrice"
+            placeholder="e.g., 14.99"
+            step="0.01"
+            min="0.01"
+            required
+          />
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-lg w-full">
+          + Add to Menu
+        </button>
+      </form>
+
+      <div class="mgr-divider"></div>
+
+      <!-- ─── Add Category ─── -->
+      <div class="add-category-section">
+        <h3 class="panel-title" style="font-size:0.95rem;">Add Category</h3>
+        <div class="add-category-form">
+          <div class="form-group">
+            <label for="newCategoryKey">Category Key</label>
+            <input type="text" id="newCategoryKey" placeholder="e.g., snacks" autocomplete="off" />
+          </div>
+          <div class="form-group">
+            <label for="newCategoryName">Display Name</label>
+            <input type="text" id="newCategoryName" placeholder="e.g., Snacks" autocomplete="off" />
+          </div>
+          <button class="btn btn-secondary btn-sm w-full" id="addCategoryBtn">+ Add Category</button>
+        </div>
+      </div>
+
+      <div class="mgr-divider"></div>
+
+      <!-- ─── Quick Stats ─── -->
+      <div class="quick-stats">
+        <div class="quick-stat">
+          <span class="qs-value" id="qsTotal">0</span>
+          <span class="qs-label">Total Items</span>
+        </div>
+        <div class="quick-stat">
+          <span class="qs-value" id="qsActive">0</span>
+          <span class="qs-label">Available</span>
+        </div>
+        <div class="quick-stat">
+          <span class="qs-value" id="qsCategories">0</span>
+          <span class="qs-label">Categories</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Right Panel: Live Menu Preview ─── -->
+    <section class="mgr-panel mgr-preview-panel reveal-spring">
+      <h2 class="panel-title">Live Menu Preview</h2>
+      <p class="panel-desc">Changes broadcast instantly to all connected waiters</p>
+
+      <div class="menu-preview" id="menuPreview">
+        <div class="preview-loading">Loading menu...</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ─── Loyalty View ─── -->
+  <div class="loyalty-view" id="loyaltyView" style="display:none;">
+    <div class="loyalty-admin-loading" id="loyaltyAdminLoading">
+      <div class="preview-loading">Loading loyalty...</div>
+    </div>
+    <div class="loyalty-admin-content" id="loyaltyAdminContent" style="display:none;">
+
+      <!-- Rules -->
+      <div class="analytics-card reveal-spring">
+        <h3 class="analytics-card-title">⚙️ Loyalty Rules</h3>
+        <div class="loyalty-rules-grid">
+          <label class="loyalty-rule-field">
+            <span>Points per ₹100 spent</span>
+            <input type="number" id="loyaltyRulePerHundred" min="1" step="1" />
+          </label>
+          <label class="loyalty-rule-field">
+            <span>Discount: spend pts = % of bill</span>
+            <input type="number" id="loyaltyRuleSpendPct" min="0" max="100" step="1" />
+          </label>
+          <label class="loyalty-rule-field">
+            <span>Discount: ₹ per 100 pts</span>
+            <input type="number" id="loyaltyRuleValuePct" min="0" max="100" step="1" />
+          </label>
+          <label class="loyalty-rule-field">
+            <span>🎂 Birthday bonus (pts)</span>
+            <input type="number" id="loyaltyRuleBirthday" min="0" step="10" />
+          </label>
+          <label class="loyalty-rule-field">
+            <span>🏅 Streak bonus every Nth visit</span>
+            <input type="number" id="loyaltyRuleStreakEvery" min="0" step="1" />
+          </label>
+          <label class="loyalty-rule-field">
+            <span>🏅 Streak bonus (pts)</span>
+            <input type="number" id="loyaltyRuleStreakBonus" min="0" step="10" />
+          </label>
+        </div>
+        <div class="loyalty-tiers" id="loyaltyTiers"></div>
+        <button class="btn btn-primary loyalty-save-btn" id="loyaltySaveRules">Save Rules</button>
+      </div>
+
+      <!-- WhatsApp -->
+      <div class="analytics-card reveal-spring" style="margin-top:16px;">
+        <h3 class="analytics-card-title">📲 WhatsApp</h3>
+        <div class="wa-card" id="waCard"></div>
+      </div>
+
+      <!-- Customers -->
+      <div class="analytics-card reveal-spring" style="margin-top:16px;">
+        <h3 class="analytics-card-title">👥 Customers</h3>
+        <div class="loyalty-customers" id="loyaltyCustomers"></div>
+      </div>
+
+      <!-- Ledger -->
+      <div class="analytics-card reveal-spring" style="margin-top:16px;">
+        <h3 class="analytics-card-title">📒 Points Ledger</h3>
+        <div class="loyalty-ledger" id="loyaltyLedger"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Analytics View ─── -->
+  <div class="analytics-view" id="analyticsView" style="display:none;">
+    <div class="analytics-loading" id="analyticsLoading">        <div class="preview-loading">Loading analytics...</div>
+    </div>
+    <div class="analytics-content" id="analyticsContent" style="display:none;">
+      <!-- Summary cards -->
+      <div class="analytics-summary" id="analyticsSummary"></div>
+
+      <!-- Period breakdown -->
+      <div class="analytics-periods" id="analyticsPeriods"></div>
+
+      <!-- Sales breakdown: yearly total + month/week/day chart -->
+      <div class="analytics-card reveal-spring" id="analyticsSales" style="margin-top:16px;"></div>
+
+      <!-- Two-column grid: Top Dishes + Time of Day -->
+      <div class="analytics-grid">
+        <div class="analytics-card reveal-spring" id="analyticsTopDishes">
+          <h3 class="analytics-card-title">Top Selling Dishes</h3>
+          <div class="top-dishes-list" id="topDishesList"></div>
+        </div>
+        <div class="analytics-card reveal-spring" id="analyticsTimeSlots">
+          <h3 class="analytics-card-title">Sales by Time of Day</h3>
+          <div class="time-slots-list" id="timeSlotsList"></div>
+        </div>
+      </div>
+
+      <!-- Returns & Wastage Card -->
+      <div class="analytics-card reveal-spring" id="analyticsWastage" style="margin-top:16px;">
+        <h3 class="analytics-card-title">↩️ Returns &amp; Wastage</h3>
+        <div class="wastage-summary" id="wastageSummary" style="display:flex;gap:16px;flex-wrap:wrap;">
+          <div class="wastage-stat" style="flex:1;min-width:150px;text-align:center;padding:16px;background:var(--bg-secondary);border-radius:10px;border:1px solid var(--border-color);">
+            <span class="wastage-value" id="wastageTotal" style="display:block;font-size:1.6rem;font-weight:800;color:var(--accent-red);">₹0</span>
+            <span class="wastage-label" style="display:block;font-size:0.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">Total Wastage</span>
+          </div>
+          <div class="wastage-stat" style="flex:1;min-width:150px;text-align:center;padding:16px;background:var(--bg-secondary);border-radius:10px;border:1px solid var(--border-color);">
+            <span class="wastage-value" id="wastageCount" style="display:block;font-size:1.6rem;font-weight:800;color:var(--accent-orange);">0</span>
+            <span class="wastage-label" style="display:block;font-size:0.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">Items Returned</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Edit Modal ─── -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal-content modal-edit">
+      <div class="modal-header">
+        <h3>Edit Menu Item</h3>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="editName">Item Name</label>
+          <input type="text" id="editName" required />
+        </div>
+        <div class="form-group">
+          <label for="editPrice">Price (₹)</label>
+          <input type="number" id="editPrice" step="0.01" min="0.01" required />
+        </div>
+        <div class="form-group">
+          <label class="switch-label">
+            <input type="checkbox" id="editAvailable" checked />
+            <span class="switch-track">
+              <span class="switch-thumb"></span>
+            </span>
+            <span>Available</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="editCancel">Cancel</button>
+        <button class="btn btn-primary" id="editSave">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Floor Map View ─── -->
+  <div class="map-view" id="mapView" style="display:none;">
+    <div class="map-toolbar">
+      <input type="file" id="mapImageInput" accept="image/*" style="display:none;" />
+      <button class="btn btn-secondary btn-sm" id="mapUploadBtn">🖼 Upload floor plan</button>
+      <button class="btn btn-secondary btn-sm" id="mapRemoveImageBtn">Remove image</button>
+      <button class="btn btn-secondary btn-sm" id="mapAddTableBtn">＋ Add table</button>
+      <label class="map-live-toggle">
+        <input type="checkbox" id="mapLiveToggle" />
+        <span>👀 Live view</span>
+      </label>
+      <button class="btn btn-primary btn-sm" id="mapSaveBtn">💾 Save map</button>
+    </div>
+    <div class="map-editor-props" id="mapProps" style="display:none;">
+      <span>Selected table</span>
+      <label>Number/label: <input type="text" id="mapLabelInput" maxlength="12" autocomplete="off" /></label>
+      <label>Shape:
+        <select id="mapShapeSelect">
+          <option value="circle">Circle</option>
+          <option value="square">Square</option>
+          <option value="rectangle">Rectangle</option>
+        </select>
+      </label>
+      <button class="btn btn-secondary btn-sm" id="mapDeleteBtn">🗑 Delete</button>
+    </div>
+    <div class="table-map-box draggable" id="mapCanvas"></div>
+    <p class="map-hint" id="mapHint" style="color:var(--text-muted);font-size:0.8rem;margin-top:10px;">
+      Drag tables to move them · drag the corner handle to resize · click a table to rename or delete it ·
+      🟡 yet to order · 🔴 ordered · 🟢 delivered · hit <b>Save map</b> when done.
+    </p>
+  </div>
+
+  <!-- ─── Manager PIN Gate ─── -->
+  <div class="modal-overlay mgr-pin-gate" id="mgrPinGate" style="z-index:2000;">
+    <div class="modal-content" style="max-width:360px;text-align:center;">
+      <div class="modal-header" style="justify-content:center;border-bottom:none;">
+        <h3>🔒 Manager Access</h3>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.88rem;color:var(--text-muted);margin-bottom:14px;">Enter the manager PIN to open this panel.</p>
+        <input
+          type="password"
+          id="mgrPinInput"
+          inputmode="numeric"
+          autocomplete="off"
+          placeholder="••••"
+          style="width:100%;text-align:center;font-size:1.4rem;letter-spacing:0.6em;padding:12px 8px;border:1px solid var(--border-color);border-radius:10px;outline:none;font-family:var(--font);"
+        />
+        <p class="mgr-pin-error" id="mgrPinError" style="display:none;color:var(--accent-red);font-size:0.85rem;margin-top:10px;">Incorrect PIN</p>
+      </div>
+      <div class="modal-footer" style="justify-content:center;">
+        <button class="btn btn-primary" id="mgrPinSubmit">Unlock</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Toast Container ─── -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ─── Scripts ─── -->
+  <script src="/js/motion.js"></script>
+  <script>
+    // ─── Skiper UI-inspired Motion Effects ────────────────────────
+    (function() {
+      var prefersReducedMotion = window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      document.addEventListener('DOMContentLoaded', function() {
+        // Subtle hover tilt on menu preview panels and analytics cards
+        // (deliberately toned down — near-flat tilt, no scale-up). Skipped
+        // for reduced motion — it's pure decoration.
+        if (!prefersReducedMotion) {
+          MotionEffects.tilt('.mgr-panel', { maxTilt: 1, perspective: 1600, scale: 1 });
+          MotionEffects.tilt('.analytics-card', { maxTilt: 1, perspective: 1600, scale: 1 });
+        }
+
+        // Spring reveal on panels — ALWAYS run (initScrollReveal reveals
+        // instantly for reduced motion and never leaves content hidden).
+        MotionEffects.scrollReveal('.mgr-panel, .analytics-card', { threshold: 0.1 });
+      });
+    })();
+  </script>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app/js/socket-client.js"></script>
+  <script src="/app/js/table-map.js"></script>
+  <script src="/app/manager/manager.js"></script>
+  <script src="/app/js/license-client.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
+  </script>
+</body>
+</html>
