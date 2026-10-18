@@ -16,7 +16,7 @@ const BASE = `http://localhost:${PORT}`;
 const SERVER = path.join(__dirname, '..', 'server.js');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const DATA_FILES = ['orders.json', 'kitchen.json', 'tables.json', 'customers.json', 'menu.json'];
+const DATA_FILES = ['orders.json', 'kitchen.json', 'tables.json', 'customers.json', 'menu.json', 'settings.json'];
 
 let child;
 let dataBackup = {};
@@ -384,4 +384,183 @@ test('menu prices must be real numbers', async () => {
 test('returns 404 for unknown API routes', async () => {
   const res = await fetch(`${BASE}/api/nope`);
   assert.strictEqual(res.status, 404);
+});
+
+// ─── Order auth (hybrid staff tokens + one-time table tokens) ────────────
+// Runs against a SECOND server instance with MANAGER_PIN set: enabling order
+// auth is refused without a PIN (by design — the staff PIN protects it), and
+// the main test server deliberately runs PIN-less to keep the other tests
+// open-access. Data files are restored by the suite's after-hook.
+
+test('order auth: manager toggle, staff tokens, single-use table tokens', async () => {
+  const PORT2 = 4100 + Math.floor(Math.random() * 800);
+  const B2 = `http://localhost:${PORT2}`;
+  const PIN = '4680';
+  const child2 = spawn(process.execPath, [SERVER], {
+    env: { ...process.env, PORT: String(PORT2), LICENSE_KEY: '', LICENSE_SERVER_URL: '', MANAGER_PIN: PIN },
+    stdio: 'ignore',
+  });
+
+  const waitFor = async () => {
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${B2}/health`);
+        if (res.ok) return;
+      } catch {
+        /* not up yet */
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error('second server did not start');
+  };
+
+  try {
+    await waitFor();
+
+    // Starts OFF — disabled is the default everywhere
+    const initial = await (await fetch(`${B2}/api/settings`)).json();
+    assert.strictEqual(initial.orderAuth, false, 'order auth is off by default');
+
+    // Toggling requires the manager PIN
+    const noPin = await fetch(`${B2}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderAuth: true }),
+    });
+    assert.strictEqual(noPin.status, 401, 'toggling needs the manager PIN');
+
+    const badPin = await fetch(`${B2}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-manager-pin': '0000' },
+      body: JSON.stringify({ orderAuth: true }),
+    });
+    assert.strictEqual(badPin.status, 401, 'wrong PIN refused');
+
+    const menu = await (await fetch(`${B2}/api/menu`)).json();
+    const item = Object.values(menu.categories).flat().find((i) => i.available && i.price > 0);
+    assert.ok(item, 'menu has an available item');
+
+    const enabled = await fetch(`${B2}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-manager-pin': PIN },
+      body: JSON.stringify({ orderAuth: true }),
+    });
+    assert.strictEqual(enabled.status, 200, 'manager can enable order auth');
+    assert.strictEqual((await enabled.json()).orderAuth, true);
+
+    // With auth ON, staff mutations are refused without a token...
+    const openOrder = await fetch(`${B2}/api/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableNumber: '51', items: [{ name: item.name, quantity: 1 }] }),
+    });
+    assert.strictEqual(openOrder.status, 401, 'order creation now needs staff auth');
+    assert.strictEqual((await openOrder.json()).error, 'STAFF_AUTH_REQUIRED');
+
+    const openStatus = await fetch(`${B2}/api/orders/1/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'delivered' }),
+    });
+    assert.strictEqual(openStatus.status, 401, 'status changes now need staff auth');
+
+    // Login: wrong PIN refused, right PIN issues a token
+    const badLogin = await fetch(`${B2}/api/auth/staff-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: '9999' }),
+    });
+    assert.strictEqual(badLogin.status, 401, 'wrong staff PIN refused');
+
+    const goodLogin = await fetch(`${B2}/api/auth/staff-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: PIN }),
+    });
+    assert.strictEqual(goodLogin.status, 200);
+    const { token } = await goodLogin.json();
+    assert.ok(token && token.length >= 32, 'a staff token was issued');
+
+    // The token unlocks staff mutations
+    const staffHeaders = { 'Content-Type': 'application/json', 'x-auth-token': token };
+    const authedOrder = await fetch(`${B2}/api/orders`, {
+      method: 'POST',
+      headers: staffHeaders,
+      body: JSON.stringify({ tableNumber: '51', waiterName: 'Test', items: [{ name: item.name, quantity: 1 }] }),
+    });
+    assert.strictEqual(authedOrder.status, 201, 'staff token can place an order');
+    const order = await authedOrder.json();
+
+    const authedStatus = await fetch(`${B2}/api/orders/${order.id}/status`, {
+      method: 'PUT',
+      headers: staffHeaders,
+      body: JSON.stringify({ status: 'delivered' }),
+    });
+    assert.strictEqual(authedStatus.status, 200, 'staff token can change status');
+
+    // Table tokens: minted by staff, required by customers, single-use
+    const mint = await fetch(`${B2}/api/orders/table-token`, {
+      method: 'POST',
+      headers: staffHeaders,
+      body: JSON.stringify({ tableNumber: '52' }),
+    });
+    assert.strictEqual(mint.status, 201);
+    const tt = await mint.json();
+    assert.match(tt.token, /^TT-[0-9A-F]{8}$/, 'token format is TT-XXXXXXXX');
+
+    const mintNoAuth = await fetch(`${B2}/api/orders/table-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableNumber: '52' }),
+    });
+    assert.strictEqual(mintNoAuth.status, 401, 'cannot mint tokens without a staff token');
+
+    const noToken = await fetch(`${B2}/api/orders/customer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableNumber: '52', items: [{ name: item.name, quantity: 1 }] }),
+    });
+    assert.strictEqual(noToken.status, 401, 'customer orders need a table token');
+    assert.strictEqual((await noToken.json()).error, 'TABLE_TOKEN_REQUIRED');
+
+    const wrongTable = await fetch(`${B2}/api/orders/customer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableNumber: '53', tableToken: tt.token, items: [{ name: item.name, quantity: 1 }] }),
+    });
+    assert.strictEqual(wrongTable.status, 403, 'a table-52 token cannot order at table 53');
+
+    const withToken = await fetch(`${B2}/api/orders/customer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableNumber: '52', tableToken: tt.token, items: [{ name: item.name, quantity: 1 }] }),
+    });
+    assert.strictEqual(withToken.status, 201, 'a valid table token places the order');
+
+    const reuse = await fetch(`${B2}/api/orders/customer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableNumber: '52', tableToken: tt.token, items: [{ name: item.name, quantity: 1 }] }),
+    });
+    assert.strictEqual(reuse.status, 401, 'the token was consumed by the first use');
+
+    // Manager turns it back off — orders work openly again
+    const disabled = await fetch(`${B2}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-manager-pin': PIN },
+      body: JSON.stringify({ orderAuth: false }),
+    });
+    assert.strictEqual(disabled.status, 200);
+
+    const reopened = await fetch(`${B2}/api/orders/customer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableNumber: '54', items: [{ name: item.name, quantity: 1 }] }),
+    });
+    assert.strictEqual(reopened.status, 201, 'with auth off anyone can order again');
+  } finally {
+    child2.kill();
+    await new Promise((r) => setTimeout(r, 200));
+  }
 });

@@ -62,6 +62,10 @@
     loyaltyCustomers: $('#loyaltyCustomers'),
     loyaltyLedger: $('#loyaltyLedger'),
     waCard: $('#waCard'),
+    // Order security
+    securityView: $('#securityView'),
+    orderAuthToggle: $('#orderAuthToggle'),
+    orderAuthStatus: $('#orderAuthStatus'),
     notifBell: $('#notifBell'),
     notifBadge: $('#notifBadge'),
     notifContainer: $('#notifContainer'),
@@ -100,6 +104,10 @@
     setupPinGateListeners();
     setupMapListeners();
     enforcePinGate();
+    if (dom.orderAuthToggle) {
+      dom.orderAuthToggle.addEventListener('change', () => saveOrderAuth(dom.orderAuthToggle.checked));
+      fetchOrderAuth();
+    }
   }
 
   // ─── Manager PIN Gate ────────────────────────────────────────────────
@@ -699,17 +707,27 @@
       dom.menuView.style.display = '';
       dom.analyticsView.style.display = 'none';
       dom.loyaltyView.style.display = 'none';
+      dom.securityView.style.display = 'none';
       dom.mgrSubtitle.textContent = 'Menu Administration';
     } else if (tab === 'loyalty') {
       dom.menuView.style.display = 'none';
       dom.analyticsView.style.display = 'none';
       dom.loyaltyView.style.display = '';
+      dom.securityView.style.display = 'none';
       dom.mgrSubtitle.textContent = 'Loyalty & Rewards';
       loadLoyalty();
+    } else if (tab === 'security') {
+      dom.menuView.style.display = 'none';
+      dom.analyticsView.style.display = 'none';
+      dom.loyaltyView.style.display = 'none';
+      dom.securityView.style.display = '';
+      dom.mgrSubtitle.textContent = 'Order Security';
+      fetchOrderAuth();
     } else if (tab === 'map') {
       dom.menuView.style.display = 'none';
       dom.analyticsView.style.display = 'none';
       dom.loyaltyView.style.display = 'none';
+      dom.securityView.style.display = 'none';
       dom.mapView.style.display = '';
       dom.mgrSubtitle.textContent = 'Floor Map';
       loadMap();
@@ -717,6 +735,7 @@
       dom.menuView.style.display = 'none';
       dom.analyticsView.style.display = '';
       dom.loyaltyView.style.display = 'none';
+      dom.securityView.style.display = 'none';
       dom.mapView.style.display = 'none';
       dom.mgrSubtitle.textContent = 'Sales Analytics';
       // Refresh analytics
@@ -904,6 +923,46 @@
     } catch (err) {
       console.error('Save loyalty rules error:', err);
       showToast('Could not save rules', 'error');
+    }
+  }
+
+  // ─── Order Auth (manager-controlled hybrid auth) ─────────────────────
+  // GET the current state; the server refuses to enable it without a
+  // MANAGER_PIN configured, so show its error rather than silently failing.
+  async function fetchOrderAuth() {
+    try {
+      const res = await fetch('/api/settings');
+      if (!res.ok) return;
+      const s = await res.json();
+      if (dom.orderAuthToggle) dom.orderAuthToggle.checked = !!s.orderAuth;
+      if (dom.orderAuthStatus) {
+        dom.orderAuthStatus.textContent = s.orderAuth
+          ? 'ON — QR customers need a one-time table code from the waiter; devices that place or close orders ask for the staff PIN.'
+          : 'OFF — anyone on the network can currently place and close orders.';
+      }
+    } catch (err) {
+      console.error('Fetch order auth error:', err);
+    }
+  }
+
+  async function saveOrderAuth(enabled) {
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ orderAuth: enabled }),
+      });
+      if (handleAuthError(res)) return;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (dom.orderAuthToggle) dom.orderAuthToggle.checked = !enabled;
+        throw new Error(data.error || 'Failed to save');
+      }
+      showToast(enabled ? 'Order auth ON — waiters now mint table codes' : 'Order auth OFF — orders are open again', 'success');
+      fetchOrderAuth();
+    } catch (err) {
+      console.error('Save order auth error:', err);
+      showToast(err.message || 'Could not save order auth', 'error');
     }
   }
 

@@ -49,6 +49,7 @@
       <button class="hamburger-btn" id="hamburgerBtn" title="Menu Categories">Menu</button>
       <span class="table-badge" id="tableBadge">Table 01</span>
       <button class="table-map-btn" id="tableMapBtn" title="Choose table from floor map" style="background:none;border:none;font-size:1.15rem;cursor:pointer;padding:4px 6px;border-radius:6px;color:var(--text-secondary);line-height:1;">🗺</button>
+      <button class="table-map-btn" id="tableTokenBtn" title="Generate a one-time table code for QR customers" style="display:none;background:none;border:none;font-size:1.15rem;cursor:pointer;padding:4px 6px;border-radius:6px;color:var(--text-secondary);line-height:1;">🎟</button>
     </div>
     <div class="header-center">
       <span class="header-category-label" id="headerCategoryLabel">Starters</span>
@@ -370,6 +371,7 @@
 
   <!-- ─── Scripts ─── -->
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/app/js/auth-client.js"></script>
   <script src="/app/js/socket-client.js"></script>
   <script src="/app/js/table-map.js"></script>
   <script src="/app/waiter/waiter.js"></script>

@@ -97,6 +97,9 @@
     // Detect table from URL
     const params = new URLSearchParams(window.location.search);
     state.tableNumber = (params.get('table') || '01').padStart(2, '0');
+    // Order auth: a table code may arrive in the QR link (?token=TT-...) or
+    // be typed in after a TABLE_TOKEN_REQUIRED error. It survives reloads.
+    state.tableToken = params.get('token') || sessionStorage.getItem('chaukaTableToken') || '';
     dom.tableBadge.textContent = `Table ${state.tableNumber}`;
     document.title = `Menu — Table ${state.tableNumber}`;
 
@@ -487,6 +490,7 @@
         tableNumber: state.tableNumber,
         items,
       };
+      if (state.tableToken) body.tableToken = state.tableToken;
       if (state.loyaltyPhone) body.customerPhone = state.loyaltyPhone;
       if (state.redeemCart.length) body.redeemItems = state.redeemCart;
       if (state.useDiscount) body.useDiscount = true;
@@ -498,12 +502,24 @@
       });
 
       if (!res.ok) {
-        let msg = 'Failed to place order';
+        let e = {};
         try {
-          const e = await res.json();
-          if (e.error) msg = e.error;
+          e = await res.json();
         } catch (_) {}
-        throw new Error(msg);
+        const tokenErrors = ['TABLE_TOKEN_REQUIRED', 'TABLE_TOKEN_EXPIRED', 'TABLE_TOKEN_MISMATCH'];
+        if (tokenErrors.includes(e.error)) {
+          const code = await window.ChaukaAuth.promptText(
+            e.message || 'Ask your waiter for the table code to place this order.',
+            'e.g. TT-1A2B3C4D'
+          );
+          if (!code) throw new Error('A table code from your waiter is required to order.');
+          state.tableToken = code.trim().toUpperCase();
+          try {
+            sessionStorage.setItem('chaukaTableToken', state.tableToken);
+          } catch (_) {}
+          return placeOrder(); // retry with the fresh code
+        }
+        throw new Error(e.message || e.error || 'Failed to place order');
       }
 
       const order = await res.json();

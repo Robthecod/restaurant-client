@@ -25,6 +25,7 @@
   const dom = {
     // Header
     tableBadge: $('#tableBadge'),
+    tableTokenBtn: $('#tableTokenBtn'),
     connDot: $('#connDot'),
     waiterNameInput: $('#waiterNameInput'),
     ordersToggle: $('#ordersToggle'),
@@ -192,6 +193,17 @@
 
     // Fetch orders for this table
     fetchOrders();
+
+    // Order auth: only show the table-code button when the manager enabled it
+    if (dom.tableTokenBtn) {
+      dom.tableTokenBtn.addEventListener('click', generateTableToken);
+      fetch('/api/settings')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((s) => {
+          if (s && s.orderAuth) dom.tableTokenBtn.style.display = '';
+        })
+        .catch(() => {});
+    }
 
     // Event listeners
     setupEventListeners();
@@ -440,6 +452,29 @@
   }
 
   // ─── Send Order ──────────────────────────────────────────────────────
+  // ─── Table tokens (order auth) ─────────────────────────────────────
+  // Mints a one-time code for this table; the QR customer page needs it to
+  // submit an order while order auth is enabled.
+  async function generateTableToken() {
+    try {
+      const res = await fetch('/api/orders/table-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tableNumber: state.tableNumber }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || 'Could not create a table code');
+      const until = new Date(data.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      await window.ChaukaAuth.showCode(
+        `Give this code to the guest at Table ${state.tableNumber}. It works once and expires at ${until}.`,
+        data.token
+      );
+    } catch (err) {
+      console.error('Table token error:', err);
+      showToast(err.message || 'Could not create a table code', 'error');
+    }
+  }
+
   async function sendOrder() {
     if (state.basket.length === 0 || state.sending) return;
     state.sending = true;
