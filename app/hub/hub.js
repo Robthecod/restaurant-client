@@ -1,5 +1,13 @@
 let serverUrl = '';
 
+    // Escape anything that reaches innerHTML (table labels and the LAN URL are
+    // not trusted markup, and the table number is typed by hand).
+    function escapeHtml(value) {
+      return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[ch]));
+    }
+
     // ─── Detect LAN IP ───
     async function detectLAN() {
       try {
@@ -7,7 +15,7 @@ let serverUrl = '';
         const data = await res.json();
         serverUrl = data.url;
         document.getElementById('lanIpDisplay').innerHTML = `
-          <div class="lan-ip-value" onclick="copyIP()" title="Click to copy">${data.url.replace('http://','')}</div>
+          <div class="lan-ip-value" onclick="copyIP()" title="Click to copy">${escapeHtml(data.url.replace('http://',''))}</div>
         `;
         document.getElementById('serverUrlDisplay').textContent = serverUrl;
         // Generate QR codes with the LAN URL
@@ -57,7 +65,7 @@ let serverUrl = '';
       const url = (baseUrl || serverUrl || window.location.origin) + '/app/customer/?table=' + tableStr;
       const qrAPI = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=';
       document.getElementById('qrCustomer').innerHTML =
-        `<img src="${qrAPI}${encodeURIComponent(url)}" alt="QR for Customer Ordering Table ${tableStr}" loading="lazy" onerror="this.parentElement.innerHTML='QR'">`;
+        `<img src="${qrAPI}${encodeURIComponent(url)}" alt="QR for Customer Ordering Table ${escapeHtml(tableStr)}" loading="lazy" onerror="this.parentElement.innerHTML='QR'">`;
       document.getElementById('customerQRLabel').textContent = `Table ${tableStr} · Scan to order`;
     }
 

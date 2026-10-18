@@ -87,11 +87,65 @@ function deriveOrderStatus(items) {
   return 'pending';
 }
 
-function addPendingStatusToItems(items) {
-  return items.map((item) => ({
-    ...item,
-    status: item.status || 'pending',
-  }));
+// ─── Server-authoritative order items ───────────────────────────────────
+// Clients only get to send { id|name, quantity, modifiers }. Price, name and
+// availability come from the menu and the status is forced to 'pending', so a
+// guest cannot inflate a bill, mint loyalty points, or mark their own order
+// delivered. (Guest-supplied prices used to feed both analytics and points.)
+const ORDER_STATUSES = ['pending', 'cooking', 'ready', 'delivered'];
+const ITEM_STATUSES = ['pending', 'cooking', 'ready'];
+
+function isValidOrderStatus(status) {
+  return ORDER_STATUSES.includes(status);
+}
+
+function isValidItemStatus(status) {
+  return ITEM_STATUSES.includes(status);
+}
+
+function menuIndex(menu) {
+  const byName = new Map();
+  const byId = new Map();
+  for (const cat of Object.keys(menu.categories)) {
+    for (const item of menu.categories[cat]) {
+      byName.set(String(item.name).toLowerCase(), item);
+      byId.set(Number(item.id), item);
+    }
+  }
+  return { byName, byId };
+}
+
+// Returns { items } or { error }. Prices and statuses are never taken from the
+// request body.
+function resolveOrderItems(menu, rawItems) {
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    return { error: 'At least one item is required' };
+  }
+  const { byName, byId } = menuIndex(menu);
+  const items = [];
+  for (const raw of rawItems) {
+    if (!raw || typeof raw !== 'object') return { error: 'Invalid item' };
+    const menuItem = (raw.id != null ? byId.get(Number(raw.id)) : undefined)
+      || (typeof raw.name === 'string' ? byName.get(raw.name.trim().toLowerCase()) : undefined);
+    if (!menuItem) {
+      const label = typeof raw.name === 'string' ? raw.name.trim().slice(0, 40) : '';
+      return { error: 'Unknown menu item' + (label ? ': ' + label : '') };
+    }
+    if (menuItem.available === false) return { error: menuItem.name + ' is unavailable' };
+    const quantity = Math.floor(Number(raw.quantity));
+    if (!Number.isFinite(quantity) || quantity < 1 || quantity > 50) {
+      return { error: 'Invalid quantity for ' + menuItem.name + ' (1-50)' };
+    }
+    items.push({
+      id: menuItem.id,
+      name: menuItem.name,
+      price: menuItem.price,        // authoritative, from the menu
+      quantity,
+      modifiers: typeof raw.modifiers === 'string' ? raw.modifiers.trim().slice(0, 120) : '',
+      status: 'pending',
+    });
+  }
+  return { items };
 }
 
 // ─── Initialize Data Store ──────────────────────────────────────────────
@@ -178,7 +232,6 @@ initDataFile(KITCHEN_FILE, { nextIngredientId: 1, nextReturnId: 1, nextHelpId: 1
 initDataFile(LICENSE_FILE, { installId: null, lastVerifiedAt: null, lastCheckedAt: null, locked: false });
 initDataFile(TABLES_FILE, {
   map: { width: 800, height: 500, image: null, tables: [] },
-  sessions: {},
 });
 
 // ─── LOYALTY / CUSTOMER REWARDS ─────────────────────────────────────────
@@ -192,8 +245,6 @@ const LOYALTY_DEFAULTS = {
   discountSpendPct: 0.1, // points required for a discount = 10% of the bill
   discountValuePct: 0.5, // each point spent = ₹0.50 off (10% of bill → 5% off)
   birthdayBonus: 200,
-  streakEvery: 5,        // bonus every Nth completed visit
-  streakBonus: 50,
   tiers: [
     { key: 'silver', name: 'Silver', minSpent: 0, multiplier: 1 },
     { key: 'gold', name: 'Gold', minSpent: 5000, multiplier: 1.5 },
@@ -264,7 +315,6 @@ function loyaltyCustomerPublic(c) {
     tier: c.tier,
     points: c.points,
     totalSpent: c.totalSpent,
-    visits: c.visits,
     birthdaySet: !!c.birthday,
     whatsappOptIn: !!c.whatsappOptIn,
   };
@@ -305,12 +355,10 @@ function awardLoyaltyForOrder(order) {
         birthday: '',
         points: 0,
         totalSpent: 0,
-        visits: 0,
         tier: 'silver',
         pointsEarned: 0,
         pointsRedeemed: 0,
         createdAt: new Date().toISOString(),
-        lastVisitAt: null,
       };
       loyalty.customers.push(customer);
     }
@@ -358,10 +406,6 @@ function awardLoyaltyForOrder(order) {
       });
     }
 
-    // Visits + streak bonus are NOT awarded per order — they're counted
-    // once when the table is closed (bill paid), see finalizeTableVisit().
-    // Within a 4-hour window, multiple closes count as the same visit.
-
     order.loyaltyAwarded = true;
     order.loyaltyEarned = earned + bonusEarned;
 
@@ -389,45 +433,60 @@ function applyLoyaltyRedemption(data, order, body) {
         birthday: normalizeBirthday(body.customerBirthday),
       points: 0,
       totalSpent: 0,
-      visits: 0,
       tier: 'silver',
       pointsEarned: 0,
       pointsRedeemed: 0,
       createdAt: new Date().toISOString(),
-      lastVisitAt: null,
     };
     loyalty.customers.push(customer);
   }
 
   order.customerPhone = phone;
+  const customerName = String(body.customerName || '').trim();
+  if (customerName) {
+    order.customerName = customerName;
+    if (!customer.name) customer.name = customerName;
+  }
 
-  // 1) Free item redemptions (face value in points)
+  // 1) Free item redemptions — the cost is looked up in the MENU, never taken
+  //    from the request (a guest used to be able to claim a Rs.299 dish for 1
+  //    point by sending their own `points` value).
   const redeemItems = Array.isArray(body.redeemItems) ? body.redeemItems : [];
-  for (const ri of redeemItems) {
-    const points = parseInt(ri.points, 10) || 0;
-    if (points <= 0) continue;
-    if (customer.points < points) return { error: 'Not enough points for ' + ri.name };
-    customer.points -= points;
-    customer.pointsRedeemed += points;
-    addLedger(loyalty, {
-      customerId: customer.id,
-      phone,
-      type: 'redeem_item',
-      points: -points,
-      orderId: order.id,
-      item: ri.name,
-      description: `Redeemed ${ri.name} for ${points} pts`,
-      createdAt: new Date().toISOString(),
-    });
-    order.items.push({
-      name: ri.name,
-      quantity: 1,
-      modifiers: '🎁 Rewarded with points',
-      status: 'pending',
-      price: 0,
-      redeemed: true,
-      pointsCost: points,
-    });
+  if (redeemItems.length > 0) {
+    const menu = readJSON(MENU_FILE);
+    const { byName, byId } = menuIndex(menu);
+    for (const ri of redeemItems) {
+      if (!ri || typeof ri !== 'object') return { error: 'Invalid redemption' };
+      const menuItem = (ri.id != null ? byId.get(Number(ri.id)) : undefined)
+        || (typeof ri.name === 'string' ? byName.get(ri.name.trim().toLowerCase()) : undefined);
+      if (!menuItem) return { error: 'Unknown menu item for redemption' };
+      if (menuItem.available === false) return { error: menuItem.name + ' is unavailable' };
+
+      const points = Math.max(1, Math.round(Number(menuItem.price) || 0));
+      if (customer.points < points) return { error: 'Not enough points for ' + menuItem.name };
+      customer.points -= points;
+      customer.pointsRedeemed += points;
+      addLedger(loyalty, {
+        customerId: customer.id,
+        phone,
+        type: 'redeem_item',
+        points: -points,
+        orderId: order.id,
+        item: menuItem.name,
+        description: `Redeemed ${menuItem.name} for ${points} pts`,
+        createdAt: new Date().toISOString(),
+      });
+      order.items.push({
+        id: menuItem.id,
+        name: menuItem.name,
+        quantity: 1,
+        modifiers: '🎁 Rewarded with points',
+        status: 'pending',
+        price: 0,
+        redeemed: true,
+        pointsCost: points,
+      });
+    }
   }
 
   // 2) Bill discount: spend 10% of the bill in points → 5% off (by design,
@@ -687,6 +746,43 @@ function scheduleNextCheck() {
 // ─── Middleware ──────────────────────────────────────────────────────────
 
 app.use(express.json({ limit: '10mb' })); // floor-plan images arrive as data URLs
+
+// ─── Security headers + same-origin CORS ────────────────────────────────
+// Registered before any route (the old wildcard CORS block sat *after* the
+// loyalty routes, so those got no headers while orders/menu/analytics were
+// readable from any website the staff happened to visit).
+app.use((req, res, next) => {
+  res.header('X-Content-Type-Options', 'nosniff');
+  res.header('X-Frame-Options', 'DENY');
+  res.header('Referrer-Policy', 'no-referrer');
+  // 'unsafe-inline' is required by the existing inline <script>/onclick usage,
+  // so this CSP mainly blocks external script loads + framing, not injected
+  // inline handlers — escaping remains the primary XSS defence.
+  res.header('Content-Security-Policy', [
+    "default-src 'self'",
+    "img-src 'self' data: https://api.qrserver.com",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "connect-src 'self' ws: wss:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+  ].join('; '));
+
+  const origin = req.headers.origin;
+  if (origin) {
+    const host = req.headers.host || '';
+    if (origin === 'http://' + host || origin === 'https://' + host) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Vary', 'Origin');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, x-manager-pin');
+      if (req.method === 'OPTIONS') return res.sendStatus(204);
+    }
+  }
+  next();
+});
 // ─── LOYALTY API ─────────────────────────────────────────────────────────
 
 // GET /api/loyalty/settings — public earning/redemption rules
@@ -715,12 +811,10 @@ app.post('/api/loyalty/register', (req, res) => {
         whatsappOptIn: !!req.body.whatsappOptIn,
         points: 0,
         totalSpent: 0,
-        visits: 0,
         tier: 'silver',
         pointsEarned: 0,
         pointsRedeemed: 0,
         createdAt: new Date().toISOString(),
-        lastVisitAt: null,
       };
       loyalty.customers.push(customer);
     } else {
@@ -769,8 +863,6 @@ app.post('/api/loyalty/settings', requireManagerAuth, (req, res) => {
     if (req.body.discountSpendPct != null) s.discountSpendPct = Math.min(1, Math.max(0, parseFloat(req.body.discountSpendPct) || 0));
     if (req.body.discountValuePct != null) s.discountValuePct = Math.min(1, Math.max(0, parseFloat(req.body.discountValuePct) || 0));
     if (req.body.birthdayBonus != null) s.birthdayBonus = Math.max(0, parseInt(req.body.birthdayBonus, 10) || 0);
-    if (req.body.streakEvery != null) s.streakEvery = Math.max(0, parseInt(req.body.streakEvery, 10) || 0);
-    if (req.body.streakBonus != null) s.streakBonus = Math.max(0, parseInt(req.body.streakBonus, 10) || 0);
     if (Array.isArray(req.body.tiers) && req.body.tiers.length >= 2) {
       s.tiers = req.body.tiers.map((t) => ({
         key: String(t.key || 'tier'),
@@ -786,189 +878,6 @@ app.post('/api/loyalty/settings', requireManagerAuth, (req, res) => {
     console.error('Loyalty settings error:', err);
     res.status(500).json({ error: 'Failed to update loyalty settings' });
   }
-});
-
-// ─── TABLE SESSIONS (loyalty phone assignment) ─────────────────────────
-// A "table session" ties a phone number (and optional name) to a table so
-// the waiter enters it ONCE and every order from that table automatically
-// earns points for that customer. Closing the session (bill paid) clears
-// the phone and counts exactly ONE visit — orders within a session no
-// longer count as separate visits.
-
-function readTables() {
-  return readJSON(TABLES_FILE);
-}
-
-function writeTables(data) {
-  writeJSON(TABLES_FILE, data);
-}
-
-function tableKey(n) {
-  return String(n == null ? '' : n).padStart(2, '0');
-}
-
-function getTableSession(tableNumber) {
-  const tables = readTables();
-  return tables.sessions[tableKey(tableNumber)] || null;
-}
-
-function emitTableSession(tableNumber, session) {
-  io.emit('table_session_updated', {
-    tableNumber,
-    phone: session.phone,
-    name: session.name,
-    ordersCount: session.ordersCount || 0,
-    openedAt: session.openedAt,
-    lastOrderAt: session.lastOrderAt || null,
-  });
-}
-
-// Attach (or replace) a phone on a table's session
-function upsertTableSession(tableNumber, { phone, name } = {}) {
-  const tables = readTables();
-  const key = tableKey(tableNumber);
-  const existing = tables.sessions[key];
-  const now = new Date().toISOString();
-  const session = {
-    phone: normalizePhone(phone) || (existing && existing.phone) || '',
-    name: String(name != null ? name : (existing && existing.name) || '').trim(),
-    ordersCount: (existing && existing.ordersCount) || 0,
-    openedAt: (existing && existing.openedAt) || now,
-    lastOrderAt: (existing && existing.lastOrderAt) || null,
-  };
-  tables.sessions[key] = session;
-  writeTables(tables);
-  emitTableSession(key, session);
-  return session;
-}
-
-// Bump order activity on a session (called when an order is placed)
-function touchTableSession(tableNumber) {
-  const tables = readTables();
-  const key = tableKey(tableNumber);
-  const s = tables.sessions[key];
-  if (!s) return null;
-  s.ordersCount = (s.ordersCount || 0) + 1;
-  s.lastOrderAt = new Date().toISOString();
-  writeTables(tables);
-  return s;
-}
-
-// One visit per closed table session: increments the customer's visit
-// count and awards the visit-streak bonus on every Nth visit.
-function finalizeTableVisit(phone) {
-  const p = normalizePhone(phone);
-  if (!p) return;
-  const loyalty = readLoyalty();
-  const settings = loyalty.settings;
-  const customer = findCustomer(loyalty, p);
-  if (!customer) return;
-
-  // Only count as a new visit if the last visit was more than 4 hours ago.
-  // Within a 4-hour window, multiple table closes count as the same visit
-  // so the waiter doesn't need to re-enter the phone each time.
-  const VISIT_WINDOW_MS = 4 * 60 * 60 * 1000; // 4 hours
-  const now = new Date();
-  const lastVisit = customer.lastVisitAt ? new Date(customer.lastVisitAt) : null;
-  const isNewVisit = !lastVisit || (now - lastVisit) > VISIT_WINDOW_MS;
-
-  if (isNewVisit) customer.visits++;
-  customer.lastVisitAt = now.toISOString();
-
-  if (isNewVisit && settings.streakEvery > 0 && customer.visits % settings.streakEvery === 0 && settings.streakBonus > 0) {
-    customer.points += settings.streakBonus;
-    customer.pointsEarned += settings.streakBonus;
-    addLedger(loyalty, {
-      customerId: customer.id,
-      phone: p,
-      type: 'streak',
-      points: settings.streakBonus,
-      description: `🏅 ${customer.visits}th visit bonus`,
-      createdAt: new Date().toISOString(),
-    });
-  }
-
-  writeLoyalty(loyalty);
-  io.emit('loyalty_updated', loyaltyCustomerPublic(customer));
-  console.log(`  Loyalty: visit #${customer.visits} for ${p}`);
-}
-
-// GET /api/tables — all open table sessions (for waiters / manager)
-app.get('/api/tables', (req, res) => {
-  const tables = readTables();
-  res.json({
-    sessions: Object.entries(tables.sessions).map(([tableNumber, s]) => ({
-      tableNumber,
-      phone: s.phone,
-      name: s.name || '',
-      ordersCount: s.ordersCount || 0,
-      openedAt: s.openedAt,
-      lastOrderAt: s.lastOrderAt || null,
-    })),
-  });
-});
-
-// GET /api/tables/:table — one table's session (customer screen prefill)
-app.get('/api/tables/:table', (req, res) => {
-  const s = getTableSession(req.params.table);
-  if (!s) return res.json({ session: null });
-  res.json({
-    session: {
-      tableNumber: tableKey(req.params.table),
-      phone: s.phone,
-      name: s.name || '',
-      ordersCount: s.ordersCount || 0,
-      openedAt: s.openedAt,
-      lastOrderAt: s.lastOrderAt || null,
-    },
-  });
-});
-
-// POST /api/tables/:table/assign — attach a phone (+ optional name) to a table
-app.post('/api/tables/:table/assign', (req, res) => {
-  const phone = normalizePhone(req.body && req.body.phone);
-  if (!phone) return res.status(400).json({ error: 'A valid phone number is required' });
-  const session = upsertTableSession(req.params.table, {
-    phone,
-    name: req.body && req.body.name,
-  });
-  console.log(`  Table ${tableKey(req.params.table)}: phone ${phone} assigned`);
-  res.status(201).json({ session });
-});
-
-// POST /api/tables/:table/close — bill paid: clear the phone, count the visit
-app.post('/api/tables/:table/close', (req, res) => {
-  const tables = readTables();
-  const key = tableKey(req.params.table);
-  const session = tables.sessions[key];
-  if (!session) return res.json({ closed: false, message: 'No open session for this table' });
-
-  delete tables.sessions[key];
-  writeTables(tables);
-
-  if ((session.ordersCount || 0) > 0 && session.phone) {
-    finalizeTableVisit(session.phone);
-  }
-
-  io.emit('table_closed', { tableNumber: key, phone: session.phone || null });
-  console.log(`  Table ${key}: session closed${session.phone ? ' (visit counted for ' + session.phone + ')' : ''}`);
-  res.json({ closed: true, phone: session.phone || null });
-});
-
-// POST /api/tables/:table/clear — remove a phone/session WITHOUT counting a
-// visit. Used when the wrong number was entered or the party left early —
-// unlike /close, this never awards visits or streak bonuses.
-app.post('/api/tables/:table/clear', (req, res) => {
-  const tables = readTables();
-  const key = tableKey(req.params.table);
-  if (!tables.sessions[key]) return res.json({ cleared: false, message: 'No open session for this table' });
-
-  delete tables.sessions[key];
-  writeTables(tables);
-
-  io.emit('table_closed', { tableNumber: key, phone: null });
-  console.log(`  Table ${key}: session cleared (no visit counted)`);
-  res.json({ cleared: true });
 });
 
 // ─── FLOOR MAP (table registry + floor plan) ───────────────────────────
@@ -1049,15 +958,6 @@ app.post('/api/map', requireManagerAuth, (req, res) => {
   writeMap(map);
   io.emit('map_updated', map);
   res.json({ map });
-});
-
-// CORS for cross-origin requests from tablets
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
 });
 
 // Serve shared static assets (style.css, motion.js, manifest, sw, icons)
@@ -1407,13 +1307,20 @@ app.post('/api/menu', requireManagerAuth, (req, res) => {
       return res.status(400).json({ error: `Invalid category "${category}". Valid: ${Object.keys(menu.categories).join(', ')}` });
     }
 
+    const cleanName = String(name).trim().slice(0, 80);
+    const cleanPrice = Number(price);
+    if (!cleanName) return res.status(400).json({ error: 'name is required' });
+    if (!Number.isFinite(cleanPrice) || cleanPrice < 0 || cleanPrice > 100000) {
+      return res.status(400).json({ error: 'price must be a number between 0 and 100000' });
+    }
+
     const items = menu.categories[category];
     const newId = items.length > 0 ? Math.max(...items.map((i) => i.id)) + 1 : 1;
 
     const newItem = {
       id: newId,
-      name,
-      price: parseFloat(price),
+      name: cleanName,
+      price: cleanPrice,
       available: true,
     };
 
@@ -1525,7 +1432,10 @@ app.post('/api/orders/customer', (req, res) => {
       return res.status(400).json({ error: 'tableNumber and items are required' });
     }
 
-    const orderItems = addPendingStatusToItems(items);
+    const menu = readJSON(MENU_FILE);
+    const resolved = resolveOrderItems(menu, items);
+    if (resolved.error) return res.status(400).json({ error: resolved.error });
+    const orderItems = resolved.items;
 
     const order = {
       id: data.nextId,
@@ -1539,16 +1449,8 @@ app.post('/api/orders/customer', (req, res) => {
       updatedAt: new Date().toISOString(),
     };
 
-    // Loyalty: remember the customer's phone on the table session so they
-    // enter it once — later orders from the same table reuse it.
-    const tableNum = String(tableNumber).padStart(2, '0');
-    if (normalizePhone(req.body.customerPhone)) {
-      upsertTableSession(tableNum, {
-        phone: req.body.customerPhone,
-        name: req.body.customerName,
-      });
-    }
-    touchTableSession(tableNum);
+    // Loyalty: the phone rides on this order (entered once at the counter),
+    // so points are credited per order — no table session to assign/close.
 
     // Loyalty: attach phone + process point redemptions (free items / discount)
     const loyaltyResult = applyLoyaltyRedemption(data, order, req.body);
@@ -1556,7 +1458,6 @@ app.post('/api/orders/customer', (req, res) => {
       return res.status(400).json({ error: loyaltyResult.error });
     }
 
-    const menu = readJSON(MENU_FILE);
     const grossTotal = orderTotalFromMenu(order, menu);
     order.grossTotal = grossTotal;
     order.paidTotal = Math.max(0, grossTotal - (order.discount || 0));
@@ -1589,8 +1490,10 @@ app.post('/api/orders', (req, res) => {
       return res.status(400).json({ error: 'tableNumber and items are required' });
     }
 
-    // Each item gets its own status
-    const orderItems = addPendingStatusToItems(items);
+    const menu = readJSON(MENU_FILE);
+    const resolved = resolveOrderItems(menu, items);
+    if (resolved.error) return res.status(400).json({ error: resolved.error });
+    const orderItems = resolved.items;
 
     const order = {
       id: data.nextId,
@@ -1603,14 +1506,8 @@ app.post('/api/orders', (req, res) => {
       updatedAt: new Date().toISOString(),
     };
 
-    // Loyalty: the phone lives on the TABLE session (entered once when the
-    // table opens) — every order from the table picks it up automatically.
-    const tableNum = String(tableNumber).padStart(2, '0');
-    if (!normalizePhone(req.body.customerPhone)) {
-      const session = getTableSession(tableNum);
-      if (session && session.phone) req.body.customerPhone = session.phone;
-    }
-    touchTableSession(tableNum);
+    // Loyalty: the phone rides on this order — entered once when the order is
+    // placed, so points follow the phone instead of a table session.
 
     // Loyalty: attach phone + process point redemptions (free items / discount)
     const loyaltyResult = applyLoyaltyRedemption(data, order, req.body);
@@ -1618,7 +1515,6 @@ app.post('/api/orders', (req, res) => {
       return res.status(400).json({ error: loyaltyResult.error });
     }
 
-    const menu = readJSON(MENU_FILE);
     const grossTotal = orderTotalFromMenu(order, menu);
     order.grossTotal = grossTotal;
     order.paidTotal = Math.max(0, grossTotal - (order.discount || 0));
@@ -1652,18 +1548,24 @@ app.put('/api/orders/:id', (req, res) => {
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
     if (items) {
-      // Preserve existing item statuses by matching on name
-      order.items = items.map((newItem) => {
+      const menu = readJSON(MENU_FILE);
+      const resolved = resolveOrderItems(menu, items);
+      if (resolved.error) return res.status(400).json({ error: resolved.error });
+      // Item statuses are never taken from the request: keep the status the
+      // kitchen already set for a matching line, otherwise start at 'pending'.
+      order.items = resolved.items.map((newItem) => {
         const existing = order.items.find(
-          (i) => i.name === newItem.name && i.modifiers === (newItem.modifiers || '')
+          (i) => i.name === newItem.name && i.modifiers === newItem.modifiers
         );
-        return {
-          ...newItem,
-          status: existing && existing.status !== 'pending' ? existing.status : (newItem.status || 'pending'),
-        };
+        return { ...newItem, status: existing ? existing.status : 'pending' };
       });
     }
-    if (status) order.status = status;
+    if (status) {
+      if (!isValidOrderStatus(status)) {
+        return res.status(400).json({ error: `Invalid status. Valid: ${ORDER_STATUSES.join(', ')}` });
+      }
+      order.status = status;
+    }
     order.updatedAt = new Date().toISOString();
 
     // Derive order status from items if items changed
@@ -2082,29 +1984,12 @@ app.get('/api/analytics', (req, res) => {
 io.on('connection', (socket) => {
   console.log(`  Client connected: ${socket.id}`);
 
-  // Allow kitchen to update order status via WebSocket
-  socket.on('update_order_status', (data) => {
-    // Refuse writes while the license is locked (and flip every screen to the lock screen)
-    if (license.enabled && license.locked) {
-      io.emit('license_locked', { reason: license.lastReason });
-      return;
-    }
-    const { orderId, status } = data;
-    const fileData = readJSON(ORDERS_FILE);
-    const order = fileData.orders.find((o) => o.id === orderId);
-
-    if (order) {
-      order.status = status;
-      order.updatedAt = new Date().toISOString();
-      awardLoyaltyForOrder(order); // award points when delivered
-      writeJSON(ORDERS_FILE, fileData);
-
-      if (status === 'ready') {
-        io.emit('waiter_order_ready', order);
-      }
-      io.emit('order_status_updated', order);
-    }
-  });
+  // NOTE: the old 'update_order_status' socket write handler was removed. It had
+  // no authentication and no status whitelist, so any client on the LAN could set
+  // an order to an arbitrary string (verified: "totally-fake-status") or flip it
+  // to 'delivered' to trigger loyalty awards. Nothing in the UI used it — the
+  // kitchen writes status over PUT /api/orders/:id/items/:index/status — so if
+  // socket writes are needed again they must be added with a real auth check.
 
   socket.on('disconnect', () => {
     console.log(`  Client disconnected: ${socket.id}`);

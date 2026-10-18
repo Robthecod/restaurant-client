@@ -237,30 +237,6 @@
   opacity: 1;
 }
 
-/* ─── Table Phone Chip (loyalty session) ───────────────────────────── */
-.table-phone-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(18, 140, 126, 0.12);
-  color: #128c7e;
-  border: 1px solid rgba(18, 140, 126, 0.35);
-  border-radius: 20px;
-  padding: 6px 12px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-  font-family: var(--font);
-  transition: background 0.15s, transform 0.1s;
-}
-.table-phone-chip:hover {
-  background: rgba(18, 140, 126, 0.2);
-  transform: scale(1.03);
-}
-.table-phone-chip:active {
-  transform: scale(0.97);
-}
-
 .table-badge.editing::after {
   display: none;
 }

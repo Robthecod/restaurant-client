@@ -58,8 +58,6 @@
     loyaltyRuleSpendPct: $('#loyaltyRuleSpendPct'),
     loyaltyRuleValuePct: $('#loyaltyRuleValuePct'),
     loyaltyRuleBirthday: $('#loyaltyRuleBirthday'),
-    loyaltyRuleStreakEvery: $('#loyaltyRuleStreakEvery'),
-    loyaltyRuleStreakBonus: $('#loyaltyRuleStreakBonus'),
     loyaltyTiers: $('#loyaltyTiers'),
     loyaltyCustomers: $('#loyaltyCustomers'),
     loyaltyLedger: $('#loyaltyLedger'),
@@ -249,8 +247,6 @@
       mapState.map = map;
       if (dom.mapView.style.display !== 'none') renderMap();
     });
-    client.on('table_session_updated', () => fetchMapStatus());
-    client.on('table_closed', () => fetchMapStatus());
     client.on('kitchen_new_order', () => fetchMapStatus());
     client.on('order_updated', () => fetchMapStatus());
     client.on('order_deleted', () => fetchMapStatus());
@@ -284,9 +280,7 @@
 
   async function fetchMapStatus() {
     try {
-      const [tablesRes, ordersRes] = await Promise.all([fetch('/api/tables'), fetch('/api/orders')]);
-      mapState.sessions = [];
-      const orders = await ordersRes.json();
+      const orders = await (await fetch('/api/orders')).json();
       // Compute per-table status: pending (red) = has open orders,
       // delivered (green) = all items delivered, default (yellow) = no orders.
       mapState.openOrders = new Set();
@@ -606,7 +600,7 @@
       html += `
         <div class="preview-category">
           <div class="preview-category-header">
-            <h3>${label}</h3>
+            <h3>${escapeHtml(label)}</h3>
             <span class="preview-category-count">${items.length} item${items.length !== 1 ? 's' : ''}</span>
           </div>
           <div class="preview-items">
@@ -615,18 +609,18 @@
               : items
                   .map(
                     (item) => `
-                <div class="preview-item" data-category="${cat}" data-id="${item.id}">
+                <div class="preview-item" data-category="${escapeHtml(cat)}" data-id="${item.id}">
                   <div class="preview-item-info">
-                    <span class="preview-item-name">${item.name}</span>
+                    <span class="preview-item-name">${escapeHtml(item.name)}</span>
                     <span class="preview-item-status ${item.available ? 'available' : 'unavailable'}">
                       ${item.available ? 'Available' : 'Unavailable'}
                     </span>
                   </div>
                   <div style="display:flex;align-items:center;">
-                    <span class="preview-item-price">₹${item.price.toFixed(2)}</span>
+                    <span class="preview-item-price">₹${(Number(item.price) || 0).toFixed(2)}</span>
                     <span class="preview-item-actions">
-                      <button class="edit-btn" data-category="${cat}" data-id="${item.id}" title="Edit">Edit</button>
-                      <button class="delete-btn" data-category="${cat}" data-id="${item.id}" title="Delete">Delete</button>
+                      <button class="edit-btn" data-category="${escapeHtml(cat)}" data-id="${item.id}" title="Edit">Edit</button>
+                      <button class="delete-btn" data-category="${escapeHtml(cat)}" data-id="${item.id}" title="Delete">Delete</button>
                     </span>
                   </div>
                 </div>
@@ -773,8 +767,6 @@
     dom.loyaltyRuleSpendPct.value = Math.round((s.discountSpendPct || 0) * 100);
     dom.loyaltyRuleValuePct.value = Math.round((s.discountValuePct || 0) * 100);
     dom.loyaltyRuleBirthday.value = s.birthdayBonus;
-    dom.loyaltyRuleStreakEvery.value = s.streakEvery;
-    dom.loyaltyRuleStreakBonus.value = s.streakBonus;
   }
 
   function renderLoyaltyTiers(s) {
@@ -845,14 +837,14 @@
           <span class="loyalty-customer-tier tier-${c.tier}">${medalFor(c.tier)} ${escapeHtml(c.tier)}</span>
           <span class="loyalty-customer-pts"><b>${c.points}</b> pts</span>
           <span class="loyalty-customer-spent">₹${c.totalSpent.toLocaleString('en-IN')}</span>
-          <span class="loyalty-customer-visits">${c.visits} visit${c.visits !== 1 ? 's' : ''} ${waLink}</span>
+          <span class="loyalty-customer-visits">${waLink}</span>
         </div>`;
         }
       )
       .join('');
     dom.loyaltyCustomers.innerHTML = `
       <div class="loyalty-customer-head">
-        <span>Customer</span><span>Tier</span><span>Points</span><span>Spent</span><span>Visits</span>
+        <span>Customer</span><span>Tier</span><span>Points</span><span>Spent</span><span>WhatsApp</span>
       </div>
       ${rows}
     `;
@@ -897,8 +889,6 @@
       discountSpendPct: (parseFloat(dom.loyaltyRuleSpendPct.value) || 0) / 100,
       discountValuePct: (parseFloat(dom.loyaltyRuleValuePct.value) || 0) / 100,
       birthdayBonus: parseInt(dom.loyaltyRuleBirthday.value, 10) || 0,
-      streakEvery: parseInt(dom.loyaltyRuleStreakEvery.value, 10) || 0,
-      streakBonus: parseInt(dom.loyaltyRuleStreakBonus.value, 10) || 0,
       tiers,
     };
 
@@ -1229,7 +1219,7 @@
         <div class="dish-row">
           <span class="dish-rank">#${d.rank}</span>
           <div class="dish-info">
-            <span class="dish-name">${d.name}</span>
+            <span class="dish-name">${escapeHtml(d.name)}</span>
             <span class="dish-revenue">₹${d.revenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
           </div>
           <div class="dish-bar-wrap">

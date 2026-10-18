@@ -111,24 +111,6 @@
 
     // Loyalty: load rules + restore the guest's account
     initLoyalty();
-
-    // If this table already has a phone assigned (waiter entered it, or a
-    // previous order by the same party), prefill it so they don't re-enter.
-    fetchTableSession();
-  }
-
-  // ─── Table Session (loyalty phone, entered once per table) ───────────
-  async function fetchTableSession() {
-    try {
-      const res = await fetch(`/api/tables/${state.tableNumber}`);
-      const data = await res.json();
-      if (data.session && data.session.phone) {
-        dom.loyaltyPhone.value = data.session.phone;
-        checkLoyalty(data.session.phone);
-      }
-    } catch (err) {
-      /* offline — leave empty */
-    }
   }
 
   // ─── Socket ──────────────────────────────────────────────────────────

@@ -150,10 +150,11 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- ─── Lenis Smooth Scroll ──────────────────────────────────── -->
-  <script src="https://unpkg.com/lenis@1.3.25/dist/lenis.min.js"></script>
+  <script src="/js/lenis.min.js"></script>
   <script>
-    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches && window.Lenis) {
       document.addEventListener('DOMContentLoaded', () => {
+        if (!window.Lenis) return; // never throw if the library fails to load
         const lenis = new Lenis({
           autoRaf: true,
           duration: 1.2,

@@ -49,7 +49,6 @@
       <button class="hamburger-btn" id="hamburgerBtn" title="Menu Categories">Menu</button>
       <span class="table-badge" id="tableBadge">Table 01</span>
       <button class="table-map-btn" id="tableMapBtn" title="Choose table from floor map" style="background:none;border:none;font-size:1.15rem;cursor:pointer;padding:4px 6px;border-radius:6px;color:var(--text-secondary);line-height:1;">🗺</button>
-      <button class="table-phone-chip" id="tablePhoneChip" title="Customer phone for this table — tap to change" style="display:none;">📱 <span id="tablePhoneText"></span></button>
     </div>
     <div class="header-center">
       <span class="header-category-label" id="headerCategoryLabel">Starters</span>
@@ -75,10 +74,6 @@
           <button class="waiter-dropdown-item" id="waiterRefreshOrders" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
             <span style="font-size:1.1rem;">🔄</span>
             <span>Refresh Orders</span>
-          </button>
-          <button class="waiter-dropdown-item" id="waiterCloseTable" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
-            <span style="font-size:1.1rem;">🧾</span>
-            <span>Close Table (Bill Paid)</span>
           </button>
           <div style="height:1px;background:var(--border-color);margin:4px 10px;"></div>
           <div style="padding:8px 14px;">
@@ -172,6 +167,11 @@
       </div>
       <div class="modal-body">
         <div id="basketItems"></div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--border-color);">
+          <label style="display:block;font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">📱 Customer phone (optional — this order earns their loyalty points)</label>
+          <input type="tel" id="basketPhone" maxlength="10" inputmode="numeric" autocomplete="off" placeholder="e.g. 9867474974" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;font-size:0.88rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);box-sizing:border-box;" />
+          <input type="text" id="basketCustomerName" maxlength="30" autocomplete="off" placeholder="Customer name (optional)" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;font-size:0.88rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);box-sizing:border-box;margin-top:8px;" />
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="basketClose">Continue Ordering</button>
@@ -361,32 +361,6 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="tableMapCancel">Cancel</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ─── Customer Phone Modal ─── -->
-  <div class="modal-overlay" id="waiterPhoneModal">
-    <div class="modal-content" style="max-width:380px;">
-      <div class="modal-header">
-        <h3>📱 Customer Phone</h3>
-        <button class="modal-close" id="waiterPhoneClose" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group" style="margin-bottom:16px;">
-          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Phone number (earns loyalty points)</label>
-          <input type="tel" id="waiterPhoneInput" maxlength="10" inputmode="numeric" autocomplete="off" placeholder="e.g. 9867474974" style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);box-sizing:border-box;" />
-        </div>
-        <div class="form-group" style="margin-bottom:4px;">
-          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Customer name (optional)</label>
-          <input type="text" id="waiterPhoneName" maxlength="30" autocomplete="off" placeholder="e.g. Rahul" style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);box-sizing:border-box;" />
-        </div>
-        <p style="font-size:0.78rem;color:var(--text-muted);margin-top:10px;">One phone per table — every order from Table <span id="waiterPhoneTableLabel">01</span> earns points for this customer until you close the table.</p>
-      </div>
-      <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
-        <button class="btn btn-secondary" id="waiterPhoneClear" style="display:none;">Clear</button>
-        <button class="btn btn-secondary" id="waiterPhoneCancel">Cancel</button>
-        <button class="btn btn-primary" id="waiterPhoneSave">Assign</button>
       </div>
     </div>
   </div>

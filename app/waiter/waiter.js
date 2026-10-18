@@ -16,7 +16,6 @@
     editingItems: [],      // mutable items array during edit
     socketConnected: false,
     sending: false,          // guard against duplicate order submissions
-    tablePhone: '',          // phone assigned to this table session (loyalty)
   };
 
   // ─── DOM References ────────────────────────────────────────────────
@@ -72,18 +71,9 @@
     tableMapCancel: $('#tableMapCancel'),
     tableMapHint: $('#tableMapHint'),
 
-    // Table phone (loyalty session)
-    tablePhoneChip: $('#tablePhoneChip'),
-    tablePhoneText: $('#tablePhoneText'),
-    waiterPhoneModal: $('#waiterPhoneModal'),
-    waiterPhoneInput: $('#waiterPhoneInput'),
-    waiterPhoneName: $('#waiterPhoneName'),
-    waiterPhoneTableLabel: $('#waiterPhoneTableLabel'),
-    waiterPhoneClose: $('#waiterPhoneClose'),
-    waiterPhoneCancel: $('#waiterPhoneCancel'),
-    waiterPhoneClear: $('#waiterPhoneClear'),
-    waiterPhoneSave: $('#waiterPhoneSave'),
-    waiterCloseTable: $('#waiterCloseTable'),
+    // Customer phone (loyalty) — entered once per order, in the basket
+    basketPhone: $('#basketPhone'),
+    basketCustomerName: $('#basketCustomerName'),
 
     // Orders Panel
     ordersModal: $('#ordersModal'),
@@ -194,9 +184,6 @@
     sidebarDom.items = $('#sidebarItems');
     sidebarDom.toggle = $('#sidebarToggle');
 
-    // Load this table's loyalty session (phone entered once per table)
-    fetchTableSession();
-
     // Setup Socket.io
     setupSocket();
 
@@ -281,33 +268,6 @@
       }
     });
 
-    // Table session updated (another device assigned a phone to this table)
-    client.on('table_session_updated', (session) => {
-      if (session.tableNumber === state.tableNumber) {
-        state.tablePhone = session.phone || '';
-        updatePhoneChip();
-      }
-    });
-
-    // Table closed (bill paid) — clear this table's phone
-    client.on('table_closed', (data) => {
-      if (data.tableNumber === state.tableNumber) {
-        state.tablePhone = '';
-        updatePhoneChip();
-      }
-    });
-  }
-
-  // ─── Table Phone (loyalty session) ───────────────────────────────────
-  async function fetchTableSession() {
-    try {
-      const res = await fetch(`/api/tables/${state.tableNumber}`);
-      const data = await res.json();
-      state.tablePhone = data.session ? data.session.phone : '';
-      updatePhoneChip();
-    } catch (err) {
-      /* offline — chip stays hidden */
-    }
   }
 
   // ─── Table Map Picker ────────────────────────────────────────────────
@@ -316,9 +276,8 @@
     dom.tableMapCanvas.innerHTML = '<div class="table-map-empty">Loading floor map…</div>';
     dom.tableMapHint.style.display = 'none';
     try {
-      const [mapRes, tablesRes, ordersRes] = await Promise.all([
+      const [mapRes, ordersRes] = await Promise.all([
         fetch('/api/map'),
-        fetch('/api/tables'),
         fetch('/api/orders'),
       ]);
       const map = (await mapRes.json()).map;
@@ -351,101 +310,19 @@
   }
 
   function pickTableFromMap(t) {
-    // Pad like the ?table= URL flow does, so socket events (sessions keyed
-    // '05') and API lookups match the label the manager typed ('5').
+    // Pad like the ?table= URL flow does, so orders (keyed '05') and API
+    // lookups match the label the manager typed on the floor map ('5').
     state.tableNumber = String(t.label).padStart(2, '0');
     dom.tableBadge.textContent = `Table ${state.tableNumber}`;
     dom.ordersTableNum.textContent = state.tableNumber;
     document.title = `Waiter Pad — Table ${state.tableNumber}`;
     dom.tableMapModal.classList.remove('active');
     refreshOrders();
-    fetchTableSession();
     showToast(`Switched to Table ${state.tableNumber}`, 'success');
   }
 
   function closeTableMap() {
     dom.tableMapModal.classList.remove('active');
-  }
-
-  function updatePhoneChip() {
-    if (!dom.tablePhoneChip) return;
-    if (state.tablePhone) {
-      dom.tablePhoneText.textContent = state.tablePhone;
-      dom.tablePhoneChip.style.display = 'inline-flex';
-    } else {
-      dom.tablePhoneChip.style.display = 'none';
-    }
-  }
-
-  function openPhoneModal() {
-    dom.waiterPhoneTableLabel.textContent = state.tableNumber;
-    dom.waiterPhoneInput.value = state.tablePhone;
-    dom.waiterPhoneName.value = '';
-    dom.waiterPhoneClear.style.display = state.tablePhone ? '' : 'none';
-    dom.waiterPhoneModal.classList.add('active');
-    setTimeout(() => dom.waiterPhoneInput.focus(), 100);
-  }
-
-  function closePhoneModal() {
-    dom.waiterPhoneModal.classList.remove('active');
-  }
-
-  async function savePhoneAssignment() {
-    const phone = dom.waiterPhoneInput.value.trim();
-    if (!phone) {
-      showToast('Enter a phone number', 'error');
-      return;
-    }
-    try {
-      const res = await fetch(`/api/tables/${state.tableNumber}/assign`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, name: dom.waiterPhoneName.value.trim() }),
-      });
-      if (!res.ok) throw new Error('Failed to assign');
-      state.tablePhone = phone;
-      updatePhoneChip();
-      closePhoneModal();
-      showToast(`📱 ${phone} assigned to Table ${state.tableNumber}`, 'success');
-    } catch (err) {
-      showToast('Could not assign phone', 'error');
-    }
-  }
-
-  async function clearPhoneAssignment() {
-    // Remove the phone from this table (e.g. wrong number entered). Uses the
-    // dedicated /clear endpoint — /close would count a visit for this phone.
-    try {
-      const res = await fetch(`/api/tables/${state.tableNumber}/clear`, { method: 'POST' });
-      if (!res.ok) throw new Error('Failed');
-      state.tablePhone = '';
-      updatePhoneChip();
-      closePhoneModal();
-      showToast('Table phone cleared', 'info');
-    } catch (err) {
-      showToast('Could not clear phone', 'error');
-    }
-  }
-
-  async function closeTable() {
-    const msg = state.tablePhone
-      ? `Close Table ${state.tableNumber} for ${state.tablePhone}?\nBill paid — this counts as one visit.`
-      : `Close Table ${state.tableNumber}?`;
-    if (!confirm(msg)) return;
-    try {
-      const res = await fetch(`/api/tables/${state.tableNumber}/close`, { method: 'POST' });
-      if (!res.ok) throw new Error('Failed');
-      const data = await res.json();
-      state.tablePhone = '';
-      updatePhoneChip();
-      showToast(
-        data.closed ? `🧾 Table ${state.tableNumber} closed` : 'No open table session',
-        data.closed ? 'success' : 'info'
-      );
-      refreshOrders();
-    } catch (err) {
-      showToast('Could not close table', 'error');
-    }
   }
 
   // ─── Fetch Menu ──────────────────────────────────────────────────────
@@ -567,6 +444,15 @@
     if (state.basket.length === 0 || state.sending) return;
     state.sending = true;
 
+    // Loyalty: the guest's phone (optional) is entered once per order here.
+    const customerPhone = dom.basketPhone.value.replace(/\D/g, '').slice(-10);
+    if (customerPhone && customerPhone.length !== 10) {
+      showToast('Customer phone must be 10 digits', 'error');
+      dom.basketPhone.focus();
+      state.sending = false;
+      return;
+    }
+
     const items = state.basket.map((b) => ({
       name: b.name,
       quantity: b.quantity,
@@ -583,8 +469,12 @@
         waiterName: state.waiterName,
         items,
       };
-      // No customerPhone here — the server pulls it from the table session,
-      // so the phone is entered once per table, not once per order.
+      // Loyalty: the phone rides on this order only — nothing is stored on the
+      // table, so there is no table session to assign or close afterwards.
+      if (customerPhone) {
+        body.customerPhone = customerPhone;
+        body.customerName = dom.basketCustomerName.value.trim();
+      }
 
       const res = await fetch('/api/orders', {
         method: 'POST',
@@ -598,6 +488,8 @@
       showToast(`Order #${order.id} sent to kitchen!`, 'success');
       state.basket = [];
       updateBasketUI();
+      dom.basketPhone.value = '';
+      dom.basketCustomerName.value = '';
       dom.basketModal.classList.remove('active');
       // Refresh orders to include the new one
       refreshOrders();
@@ -1025,8 +917,8 @@
     banner.className = 'ready-banner';
     banner.innerHTML = `
       <div class="ready-title">✅ Order #${order.id} is Ready!</div>
-      <div class="ready-desc">Table ${order.tableNumber} — ${order.items
-      .map((i) => `${i.quantity}x ${i.name}`)
+      <div class="ready-desc">Table ${escapeHtml(order.tableNumber)} — ${order.items
+      .map((i) => `${i.quantity}x ${escapeHtml(i.name)}`)
       .join(', ')}</div>
       <button class="dismiss-btn">Got it!</button>
     `;
@@ -1250,23 +1142,6 @@
     dom.tableMapCancel.addEventListener('click', closeTableMap);
     dom.tableMapModal.addEventListener('click', (e) => {
       if (e.target === dom.tableMapModal) closeTableMap();
-    });
-
-    // ─── Table Phone (loyalty session) ───
-    dom.tablePhoneChip.addEventListener('click', openPhoneModal);
-    dom.waiterPhoneSave.addEventListener('click', savePhoneAssignment);
-    dom.waiterPhoneClose.addEventListener('click', closePhoneModal);
-    dom.waiterPhoneCancel.addEventListener('click', closePhoneModal);
-    dom.waiterPhoneClear.addEventListener('click', clearPhoneAssignment);
-    dom.waiterPhoneInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') savePhoneAssignment();
-    });
-    dom.waiterPhoneModal.addEventListener('click', (e) => {
-      if (e.target === dom.waiterPhoneModal) closePhoneModal();
-    });
-    dom.waiterCloseTable.addEventListener('click', () => {
-      dom.waiterDropdown.style.display = 'none';
-      closeTable();
     });
 
     // ─── Orders Panel Events ───
