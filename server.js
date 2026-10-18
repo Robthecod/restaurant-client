@@ -842,14 +842,14 @@ app.get('/api/loyalty/status', (req, res) => {
   res.json({ exists: true, customer: loyaltyCustomerPublic(customer) });
 });
 
-// GET /api/loyalty/customers — manager directory
-app.get('/api/loyalty/customers', (req, res) => {
+// GET /api/loyalty/customers — manager directory (PII: names + phones)
+app.get('/api/loyalty/customers', requireStaffAuth, (req, res) => {
   const loyalty = readLoyalty();
   res.json(loyalty.customers.map((c) => loyaltyCustomerPublic(c)));
 });
 
-// GET /api/loyalty/ledger?limit=50 — manager activity feed
-app.get('/api/loyalty/ledger', (req, res) => {
+// GET /api/loyalty/ledger?limit=50 — manager activity feed (per-customer)
+app.get('/api/loyalty/ledger', requireStaffAuth, (req, res) => {
   const limit = Math.min(200, parseInt(req.query.limit, 10) || 50);
   const loyalty = readLoyalty();
   res.json(loyalty.ledger.slice(-limit).reverse());
@@ -1122,16 +1122,31 @@ app.post('/api/auth/staff-login', (req, res) => {
   res.json({ ok: true, token });
 });
 
-function requireStaffAuth(req, res, next) {
-  if (!settings.orderAuth) return next();
+function hasStaffToken(req) {
   const token = String(req.headers['x-auth-token'] || '');
   const expiry = token ? staffTokens.get(token) : null;
-  if (expiry && expiry > Date.now()) return next();
+  if (expiry && expiry > Date.now()) return true;
   if (token) staffTokens.delete(token);
+  return false;
+}
+
+function requireStaffAuth(req, res, next) {
+  if (!settings.orderAuth) return next();
+  if (hasStaffToken(req)) return next();
   return res.status(401).json({
     error: 'STAFF_AUTH_REQUIRED',
     message: 'Staff PIN required to change orders.',
   });
+}
+
+// What a guest may see of their own order (customer screen polls it by id):
+// everything except the loyalty identity attached when it was placed.
+function redactOrderForGuests(order) {
+  const clone = { ...order };
+  delete clone.customerPhone;
+  delete clone.customerName;
+  delete clone.loyaltyAwarded;
+  return clone;
 }
 
 // Validates a one-time table token (single-use: consumed by the customer
@@ -1536,7 +1551,7 @@ app.delete('/api/menu/:id', requireManagerAuth, (req, res) => {
 // ─── ORDERS API ─────────────────────────────────────────────────────────
 
 // GET /api/orders — Fetch all orders (optional ?table=XX filter)
-app.get('/api/orders', (req, res) => {
+app.get('/api/orders', requireStaffAuth, (req, res) => {
   try {
     const data = readJSON(ORDERS_FILE);
     let orders = data.orders;
@@ -1563,6 +1578,12 @@ app.get('/api/orders/:id', (req, res) => {
     const orderId = parseInt(req.params.id);
     const order = data.orders.find((o) => o.id === orderId);
     if (!order) return res.status(404).json({ error: 'Order not found' });
+    // The customer screen polls its own order by id, so this stays reachable
+    // — but without a staff token the loyalty identity is stripped, so an
+    // outsider cannot harvest phones from sequential order ids.
+    if (settings.orderAuth && !hasStaffToken(req)) {
+      return res.json(redactOrderForGuests(order));
+    }
     res.json(order);
   } catch (err) {
     res.status(500).json({ error: 'Failed to read order' });

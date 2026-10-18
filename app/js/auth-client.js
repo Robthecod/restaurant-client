@@ -126,6 +126,7 @@
         }
       });
 
+      modalEl = backdrop; // so closeModal() can actually remove it
       document.body.appendChild(backdrop);
       if (input) input.focus();
     });
@@ -161,6 +162,19 @@
     });
   }
 
+  // Screens fire several gated fetches at load; they must share ONE prompt
+  // instead of racing modals that cancel each other.
+  var pinPromptInFlight = null;
+  function sharedPinPrompt() {
+    if (!pinPromptInFlight) {
+      pinPromptInFlight = promptForPin().then(
+        function (r) { pinPromptInFlight = null; return r; },
+        function (e) { pinPromptInFlight = null; throw e; }
+      );
+    }
+    return pinPromptInFlight;
+  }
+
   var RETRIED = '__chaukaAuthRetried';
 
   // Patch fetch: attach the token, auto-unlock once on STAFF_AUTH_REQUIRED.
@@ -178,7 +192,7 @@
       if (res.status !== 401 || init[RETRIED]) return res;
       return res.clone().json().catch(function () { return {}; }).then(function (body) {
         if (body && body.error === 'STAFF_AUTH_REQUIRED') {
-          return promptForPin().then(function (result) {
+          return sharedPinPrompt().then(function (result) {
             if (!result || !result.token) return res; // cancelled — surface the 401
             var retry = {};
             for (var key in init) retry[key] = init[key];

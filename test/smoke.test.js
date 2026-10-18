@@ -545,6 +545,51 @@ test('order auth: manager toggle, staff tokens, single-use table tokens', async 
     });
     assert.strictEqual(reuse.status, 401, 'the token was consumed by the first use');
 
+    // Read endpoints no longer leak PII without a staff token
+    const listNoAuth = await fetch(`${B2}/api/orders`);
+    assert.strictEqual(listNoAuth.status, 401, 'orders list needs staff auth');
+
+    const listAuthed = await fetch(`${B2}/api/orders`, { headers: { 'x-auth-token': token } });
+    assert.strictEqual(listAuthed.status, 200, 'staff token can read the orders list');
+
+    // Guests polling their own order still get it — minus the loyalty identity
+    const seed2 = await fetch(`${B2}/api/orders`, {
+      method: 'POST',
+      headers: staffHeaders,
+      body: JSON.stringify({
+        tableNumber: '55',
+        waiterName: 'Test',
+        customerPhone: '9876543210',
+        items: [{ name: item.name, quantity: 1 }],
+      }),
+    });
+    assert.strictEqual(seed2.status, 201);
+    const seedOrder = await seed2.json();
+
+    const guestView = await (await fetch(`${B2}/api/orders/${seedOrder.id}`)).json();
+    assert.strictEqual(guestView.id, seedOrder.id, 'guest can still poll their order');
+    assert.ok(!('customerPhone' in guestView), 'phone is stripped for guests');
+    assert.ok(!('customerName' in guestView), 'name is stripped for guests');
+
+    const staffView = await (
+      await fetch(`${B2}/api/orders/${seedOrder.id}`, { headers: { 'x-auth-token': token } })
+    ).json();
+    assert.strictEqual(staffView.customerPhone, '9876543210', 'staff still see the full order');
+
+    const dirNoAuth = await fetch(`${B2}/api/loyalty/customers`);
+    assert.strictEqual(dirNoAuth.status, 401, 'customer directory needs staff auth');
+
+    const dirAuthed = await fetch(`${B2}/api/loyalty/customers`, { headers: { 'x-auth-token': token } });
+    assert.strictEqual(dirAuthed.status, 200, 'staff token can read the directory');
+
+    const ledgerNoAuth = await fetch(`${B2}/api/loyalty/ledger`);
+    assert.strictEqual(ledgerNoAuth.status, 401, 'points ledger needs staff auth');
+
+    const ledgerAuthed = await fetch(`${B2}/api/loyalty/ledger`, { headers: { 'x-auth-token': token } });
+    assert.strictEqual(ledgerAuthed.status, 200, 'staff token can read the ledger');
+
+    await fetch(`${B2}/api/orders/${seedOrder.id}`, { method: 'DELETE', headers: { 'x-auth-token': token } });
+
     // Manager turns it back off — orders work openly again
     const disabled = await fetch(`${B2}/api/settings`, {
       method: 'POST',
