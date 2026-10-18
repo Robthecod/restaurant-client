@@ -855,6 +855,87 @@ app.get('/api/loyalty/ledger', requireStaffAuth, (req, res) => {
   res.json(loyalty.ledger.slice(-limit).reverse());
 });
 
+// POST /api/loyalty/manual-earn — the simple path: a waiter enters the bill
+// amount and the guest's phone, and points are credited at the configured
+// rate. No order involved. `consent: true` is mandatory — points are only
+// ever added when the guest has agreed.
+app.post('/api/loyalty/manual-earn', requireStaffAuth, (req, res) => {
+  try {
+    const { phone, billAmount, consent } = req.body || {};
+    if (consent !== true) {
+      return res.status(400).json({ error: 'Customer consent is required to add points' });
+    }
+    const normalized = normalizePhone(phone);
+    if (normalized.length !== 10) {
+      return res.status(400).json({ error: 'A 10-digit customer phone number is required' });
+    }
+    const bill = parseFloat(billAmount);
+    if (!isFinite(bill) || bill <= 0) {
+      return res.status(400).json({ error: 'Bill amount must be a positive number' });
+    }
+    if (bill > 1000000) {
+      return res.status(400).json({ error: 'Bill amount looks too large (max ₹10,00,000)' });
+    }
+
+    const loyalty = readLoyalty();
+    const loyaltySettings = loyalty.settings;
+    let customer = findCustomer(loyalty, normalized);
+    if (!customer) {
+      customer = {
+        id: loyalty.nextCustomerId++,
+        phone: normalized,
+        name: '',
+        birthday: '',
+        points: 0,
+        totalSpent: 0,
+        tier: 'silver',
+        pointsEarned: 0,
+        pointsRedeemed: 0,
+        createdAt: new Date().toISOString(),
+      };
+      loyalty.customers.push(customer);
+    }
+
+    // Same maths as order-based earning: rate per ₹100 × tier multiplier,
+    // with the tier recomputed against this bill's spend.
+    const prospectiveTier = computeTier(loyaltySettings, customer.totalSpent + bill);
+    let earned = Math.floor((bill / 100) * loyaltySettings.pointsPerHundred);
+    earned = Math.floor(earned * (prospectiveTier.multiplier || 1));
+    if (earned <= 0) {
+      return res.status(400).json({ error: 'Bill amount is too small to earn points at the current rate' });
+    }
+
+    customer.totalSpent += bill;
+    customer.tier = prospectiveTier.key;
+    customer.points += earned;
+    customer.pointsEarned += earned;
+
+    addLedger(loyalty, {
+      customerId: customer.id,
+      phone: normalized,
+      type: 'earn',
+      points: earned,
+      description: `Manual earn on ₹${Math.round(bill)} bill (guest consented)`,
+      source: 'manual',
+      consentAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    });
+    writeLoyalty(loyalty);
+
+    console.log(`  Manual earn: +${earned} pts for ${normalized} (bill ₹${Math.round(bill)})`);
+    res.status(201).json({
+      ok: true,
+      earned,
+      points: customer.points,
+      tier: customer.tier,
+      customer: loyaltyCustomerPublic(customer),
+    });
+  } catch (err) {
+    console.error('Manual earn error:', err);
+    res.status(500).json({ error: 'Failed to add points' });
+  }
+});
+
 // POST /api/loyalty/settings — manager updates rules
 app.post('/api/loyalty/settings', requireManagerAuth, (req, res) => {
   try {

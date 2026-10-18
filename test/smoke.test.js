@@ -386,6 +386,72 @@ test('returns 404 for unknown API routes', async () => {
   assert.strictEqual(res.status, 404);
 });
 
+// ─── Manual loyalty earn (waiter enters bill + phone, guest consents) ────
+
+test('manual points: bill + phone earn at the configured rate, consent required', async () => {
+  const settings = await (await fetch(`${BASE}/api/loyalty/settings`)).json();
+  const phone = '9988776655'; // synthetic — the suite restores customers.json
+
+  const noConsent = await fetch(`${BASE}/api/loyalty/manual-earn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, billAmount: 500 }),
+  });
+  assert.strictEqual(noConsent.status, 400, 'consent is mandatory');
+  assert.match((await noConsent.json()).error, /consent/i);
+
+  const badPhone = await fetch(`${BASE}/api/loyalty/manual-earn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: '12345', billAmount: 500, consent: true }),
+  });
+  assert.strictEqual(badPhone.status, 400, 'a real phone number is required');
+
+  const badBill = await fetch(`${BASE}/api/loyalty/manual-earn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, billAmount: -5, consent: true }),
+  });
+  assert.strictEqual(badBill.status, 400, 'negative bills are rejected');
+
+  const earn = await fetch(`${BASE}/api/loyalty/manual-earn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, billAmount: 500, consent: true }),
+  });
+  assert.strictEqual(earn.status, 201);
+  const body = await earn.json();
+
+  // Exact server maths for a fresh customer: floor(bill/100 × rate) × tier
+  let tier = settings.tiers[0];
+  for (const t of settings.tiers) if (500 >= t.minSpent) tier = t;
+  const expected = Math.floor(Math.floor((500 / 100) * settings.pointsPerHundred) * (tier.multiplier || 1));
+  assert.strictEqual(body.earned, expected, 'points follow the configured rate × tier');
+  assert.strictEqual(body.points, expected, 'a new customer\'s balance equals what was earned');
+  assert.strictEqual(body.customer.phone, phone);
+
+  const ledger = await (await fetch(`${BASE}/api/loyalty/ledger`)).json();
+  const entry = ledger.find((l) => l.phone === phone && l.source === 'manual');
+  assert.ok(entry, 'the ledger records the manual earn');
+  assert.strictEqual(entry.points, expected);
+  assert.ok(entry.consentAt, 'the consent timestamp is recorded');
+
+  // Second earn stacks on the first
+  const again = await fetch(`${BASE}/api/loyalty/manual-earn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, billAmount: 100, consent: true }),
+  });
+  assert.strictEqual(again.status, 201);
+
+  const status = await (await fetch(`${BASE}/api/loyalty/status?phone=${phone}`)).json();
+  assert.ok(status.customer.points > body.points, 'the balance accumulated');
+  const ledgerNow = await (await fetch(`${BASE}/api/loyalty/ledger`)).json();
+  const secondEntry = ledgerNow.find((l) => l.phone === phone && l.source === 'manual' && l.id !== entry.id);
+  assert.ok(secondEntry, 'the second earn is in the ledger too');
+  assert.strictEqual(status.customer.points, body.points + secondEntry.points, 'balance = first earn + second earn');
+});
+
 // ─── Order auth (hybrid staff tokens + one-time table tokens) ────────────
 // Runs against a SECOND server instance with MANAGER_PIN set: enabling order
 // auth is refused without a PIN (by design — the staff PIN protects it), and

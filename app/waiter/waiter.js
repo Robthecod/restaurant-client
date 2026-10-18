@@ -107,6 +107,14 @@
     waiterMenuBtn: $('#waiterMenuBtn'),
     waiterDropdown: $('#waiterDropdown'),
     waiterRequestIngredient: $('#waiterRequestIngredient'),
+    waiterAddPoints: $('#waiterAddPoints'),
+    waiterPointsModal: $('#waiterPointsModal'),
+    waiterPointsClose: $('#waiterPointsClose'),
+    waiterPointsCancel: $('#waiterPointsCancel'),
+    waiterPointsPhone: $('#waiterPointsPhone'),
+    waiterPointsBill: $('#waiterPointsBill'),
+    waiterPointsConsent: $('#waiterPointsConsent'),
+    waiterPointsSubmit: $('#waiterPointsSubmit'),
     waiterSendBackDish: $('#waiterSendBackDish'),
     waiterHelpReport: $('#waiterHelpReport'),
     waiterRefreshOrders: $('#waiterRefreshOrders'),
@@ -1280,6 +1288,62 @@
     dom.waiterIngredientSubmit.addEventListener('click', submitIngredientRequest);
     dom.waiterIngredientQty.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') submitIngredientRequest();
+    });
+
+    // Add Loyalty Points (manual earn for a settled bill — no order needed)
+    dom.waiterAddPoints.addEventListener('click', () => {
+      dom.waiterDropdown.style.display = 'none';
+      dom.waiterPointsPhone.value = '';
+      dom.waiterPointsBill.value = '';
+      dom.waiterPointsConsent.checked = false;
+      dom.waiterPointsModal.classList.add('active');
+      setTimeout(() => dom.waiterPointsPhone.focus(), 100);
+    });
+
+    function closePointsModal() {
+      dom.waiterPointsModal.classList.remove('active');
+    }
+    dom.waiterPointsClose.addEventListener('click', closePointsModal);
+    dom.waiterPointsCancel.addEventListener('click', closePointsModal);
+    dom.waiterPointsModal.addEventListener('click', (e) => {
+      if (e.target === dom.waiterPointsModal) closePointsModal();
+    });
+
+    async function submitManualEarn() {
+      const phone = dom.waiterPointsPhone.value.replace(/\D/g, '').slice(-10);
+      const billAmount = parseFloat(dom.waiterPointsBill.value);
+      if (phone.length !== 10) {
+        showToast('Customer phone must be 10 digits', 'error');
+        dom.waiterPointsPhone.focus();
+        return;
+      }
+      if (!isFinite(billAmount) || billAmount <= 0) {
+        showToast('Enter the bill amount', 'error');
+        dom.waiterPointsBill.focus();
+        return;
+      }
+      if (!dom.waiterPointsConsent.checked) {
+        showToast('Confirm the guest agreed to earn points', 'error');
+        return;
+      }
+      try {
+        const res = await fetch('/api/loyalty/manual-earn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, billAmount, consent: true }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || data.error || 'Could not add points');
+        showToast(`🎁 +${data.earned} points added — balance ${data.points}`, 'success');
+        closePointsModal();
+      } catch (err) {
+        console.error('Manual earn error:', err);
+        showToast(err.message || 'Could not add points', 'error');
+      }
+    }
+    dom.waiterPointsSubmit.addEventListener('click', submitManualEarn);
+    dom.waiterPointsBill.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitManualEarn();
     });
 
     // Refresh Orders

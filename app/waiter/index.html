@@ -71,6 +71,10 @@
             <span style="font-size:1.1rem;">🆘</span>
             <span>Help / Report an Issue</span>
           </button>
+          <button class="waiter-dropdown-item" id="waiterAddPoints" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
+            <span style="font-size:1.1rem;">🎁</span>
+            <span>Add Loyalty Points</span>
+          </button>
           <div style="height:1px;background:var(--border-color);margin:4px 10px;"></div>
           <button class="waiter-dropdown-item" id="waiterRefreshOrders" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border:none;background:none;color:var(--text-primary);font-size:0.88rem;font-weight:500;cursor:pointer;border-radius:6px;transition:background 0.12s;text-align:left;font-family:var(--font);">
             <span style="font-size:1.1rem;">🔄</span>
@@ -275,6 +279,35 @@
       <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
         <button class="btn btn-secondary" id="waiterIngredientCancel">Cancel</button>
         <button class="btn btn-primary" id="waiterIngredientSubmit">Submit Request</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Add Loyalty Points (manual earn) ─── -->
+  <div class="modal-overlay" id="waiterPointsModal">
+    <div class="modal-content" style="max-width:420px;">
+      <div class="modal-header">
+        <h3>🎁 Add Loyalty Points</h3>
+        <button class="modal-close" id="waiterPointsClose" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:14px;">Enter the settled bill and the guest's phone — points are added at the restaurant's configured rate. No order needed.</p>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Customer Phone (10 digits)</label>
+          <input type="tel" id="waiterPointsPhone" inputmode="numeric" maxlength="10" placeholder="e.g., 9876543210" autocomplete="off" style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;" />
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">Bill Amount (₹)</label>
+          <input type="number" id="waiterPointsBill" inputmode="decimal" min="1" step="0.01" placeholder="e.g., 450" style="width:100%;padding:12px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:0.92rem;font-family:var(--font);outline:none;background:var(--bg-card);color:var(--text-primary);transition:border-color 0.15s;" />
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.82rem;color:var(--text-secondary);cursor:pointer;line-height:1.4;">
+          <input type="checkbox" id="waiterPointsConsent" style="margin-top:2px;width:16px;height:16px;cursor:pointer;" />
+          <span>The guest agrees to earn loyalty points on this bill</span>
+        </label>
+      </div>
+      <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" id="waiterPointsCancel">Cancel</button>
+        <button class="btn btn-primary" id="waiterPointsSubmit">Add Points</button>
       </div>
     </div>
   </div>
