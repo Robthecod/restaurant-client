@@ -20,7 +20,7 @@ const SERVER = path.join(__dirname, '..', 'server.js');
 const MANAGER = { 'Content-Type': 'application/json', 'x-manager-pin': '0000' };
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const DATA_FILES = ['orders.json', 'kitchen.json', 'tables.json', 'customers.json', 'menu.json', 'settings.json'];
+const DATA_FILES = ['orders.json', 'kitchen.json', 'tables.json', 'customers.json', 'menu.json', 'settings.json', 'staffcode.json'];
 
 let child;
 let dataBackup = {};
@@ -115,13 +115,13 @@ before(async () => {
 after(async () => {
   if (child) child.kill();
   await new Promise((resolve) => setTimeout(resolve, 200));
-  for (const [file, contents] of Object.entries(dataBackup)) {
-    fs.writeFileSync(path.join(DATA_DIR, file), contents);
-  }
-  // The auth test toggles order auth; a settings.json the suite created must
-  // not survive it, or every later run starts with the gate switched on.
-  if (!dataBackup['settings.json']) {
-    fs.rmSync(path.join(DATA_DIR, 'settings.json'), { force: true });
+  // Restore every data file to its pre-test bytes — and delete the ones the
+  // suite itself created (settings.json from the auth toggle, staffcode.json
+  // from the staff-code endpoint), so later runs start clean.
+  for (const file of DATA_FILES) {
+    const target = path.join(DATA_DIR, file);
+    if (dataBackup[file]) fs.writeFileSync(target, dataBackup[file]);
+    else fs.rmSync(target, { force: true });
   }
 });
 
