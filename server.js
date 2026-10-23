@@ -800,7 +800,11 @@ app.post('/api/loyalty/register', (req, res) => {
   try {
     const loyalty = readLoyalty();
     const phone = normalizePhone(req.body.phone);
-    if (!phone) return res.status(400).json({ error: 'A valid phone number is required' });
+    // Same rule as manual earn: a loyalty account is keyed by a full phone
+    // number, so "123" must not create an account nobody can ever reach.
+    if (phone.length !== 10) {
+      return res.status(400).json({ error: 'A 10-digit phone number is required' });
+    }
 
     let customer = findCustomer(loyalty, phone);
     if (!customer) {
@@ -941,18 +945,66 @@ app.post('/api/loyalty/settings', requireManagerAuth, (req, res) => {
   try {
     const loyalty = readLoyalty();
     const s = loyalty.settings;
-    if (req.body.pointsPerHundred != null) s.pointsPerHundred = Math.max(1, parseFloat(req.body.pointsPerHundred) || 1);
-    if (req.body.discountSpendPct != null) s.discountSpendPct = Math.min(1, Math.max(0, parseFloat(req.body.discountSpendPct) || 0));
-    if (req.body.discountValuePct != null) s.discountValuePct = Math.min(1, Math.max(0, parseFloat(req.body.discountValuePct) || 0));
-    if (req.body.birthdayBonus != null) s.birthdayBonus = Math.max(0, parseInt(req.body.birthdayBonus, 10) || 0);
-    if (Array.isArray(req.body.tiers) && req.body.tiers.length >= 2) {
-      s.tiers = req.body.tiers.map((t) => ({
-        key: String(t.key || 'tier'),
-        name: String(t.name || t.key || 'Tier'),
-        minSpent: Math.max(0, parseFloat(t.minSpent) || 0),
-        multiplier: Math.max(0.1, parseFloat(t.multiplier) || 1),
-      }));
+    const body = req.body || {};
+
+    // Validate everything before changing anything: a typo used to be coerced
+    // into a "valid" value (pointsPerHundred 'abc' became 1, i.e. 90% less
+    // earning, and was saved without a word).
+    const toNumber = (value) => {
+      if (value === null || value === undefined || value === '') return null;
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const next = {};
+    if (body.pointsPerHundred != null) {
+      const v = toNumber(body.pointsPerHundred);
+      if (v === null || v < 1 || v > 1000) {
+        return res.status(400).json({ error: 'Points per ₹100 must be a number between 1 and 1000' });
+      }
+      next.pointsPerHundred = v;
     }
+    for (const [field, label] of [
+      ['discountSpendPct', 'Discount spend %'],
+      ['discountValuePct', 'Discount value %'],
+    ]) {
+      if (body[field] != null) {
+        const v = toNumber(body[field]);
+        if (v === null || v < 0 || v > 1) {
+          return res.status(400).json({ error: label + ' must be a number between 0 and 1' });
+        }
+        next[field] = v;
+      }
+    }
+    if (body.birthdayBonus != null) {
+      const v = toNumber(body.birthdayBonus);
+      if (v === null || v < 0 || v > 100000) {
+        return res.status(400).json({ error: 'Birthday bonus must be a number between 0 and 100000' });
+      }
+      next.birthdayBonus = Math.round(v);
+    }
+    if (body.tiers != null) {
+      if (!Array.isArray(body.tiers) || body.tiers.length < 2) {
+        return res.status(400).json({ error: 'At least two tiers are required' });
+      }
+      const tiers = [];
+      for (const t of body.tiers) {
+        const minSpent = toNumber(t && t.minSpent);
+        const multiplier = toNumber(t && t.multiplier);
+        if (!t || minSpent === null || minSpent < 0 || multiplier === null || multiplier < 0.1) {
+          return res.status(400).json({ error: 'Each tier needs a minimum spend ≥ 0 and a multiplier ≥ 0.1' });
+        }
+        tiers.push({
+          key: String(t.key || 'tier'),
+          name: String(t.name || t.key || 'Tier').slice(0, 40),
+          minSpent,
+          multiplier,
+        });
+      }
+      next.tiers = tiers;
+    }
+
+    Object.assign(s, next);
     writeLoyalty(loyalty);
     emitStaff('loyalty_settings_updated', s);
     res.json(s);
@@ -1378,11 +1430,13 @@ app.post('/api/menu/category', requireManagerAuth, (req, res) => {
 
 // ─── INGREDIENT REQUEST API ────────────────────────────────────────────
 
-// POST /api/ingredient-request — Report missing ingredient
-app.post('/api/ingredient-request', (req, res) => {
+// POST /api/ingredient-request — Report missing ingredient (staff)
+// These were open to the whole LAN even with order auth on: a guest could
+// write staff records and read them back. They are staff-only now.
+app.post('/api/ingredient-request', requireStaffAuth, (req, res) => {
   try {
     const data = readJSON(KITCHEN_FILE);
-    const { ingredient, quantity, requestedBy, tableNumber } = req.body;
+    const { ingredient, quantity, requestedBy, tableNumber } = req.body || {};
 
     if (!ingredient || !quantity) {
       return res.status(400).json({ error: 'ingredient and quantity are required' });
@@ -1390,10 +1444,10 @@ app.post('/api/ingredient-request', (req, res) => {
 
     const request = {
       id: data.nextIngredientId,
-      ingredient,
-      quantity,
-      requestedBy: requestedBy || 'Staff',
-      tableNumber: tableNumber || '',
+      ingredient: String(ingredient).trim().slice(0, 80),
+      quantity: String(quantity).trim().slice(0, 60),
+      requestedBy: String(requestedBy || 'Staff').trim().slice(0, 60) || 'Staff',
+      tableNumber: String(tableNumber || '').slice(0, 12),
       status: 'open',
       createdAt: new Date().toISOString(),
     };
@@ -1414,8 +1468,8 @@ app.post('/api/ingredient-request', (req, res) => {
 
 // ─── INGREDIENT REQUESTS API (GET + PATCH) ─────────────────────────────
 
-// GET /api/ingredient-requests — Fetch all open ingredient requests
-app.get('/api/ingredient-requests', (req, res) => {
+// GET /api/ingredient-requests — Fetch all open ingredient requests (staff)
+app.get('/api/ingredient-requests', requireStaffAuth, (req, res) => {
   try {
     const data = readJSON(KITCHEN_FILE);
     const openRequests = data.ingredientRequests.filter(r => r.status === 'open');
@@ -1453,23 +1507,34 @@ app.patch('/api/ingredient-requests/:id/resolve', requireStaffAuth, (req, res) =
 
 // ─── RETURNED DISH API ─────────────────────────────────────────────────
 
-// POST /api/returned-dish — Report a dish sent back (waiter only)
-app.post('/api/returned-dish', (req, res) => {
+// POST /api/returned-dish — Report a dish sent back (staff)
+app.post('/api/returned-dish', requireStaffAuth, (req, res) => {
   try {
     const data = readJSON(KITCHEN_FILE);
-    const { dishName, quantity, reason, amount, tableNumber } = req.body;
+    const { dishName, quantity, reason, amount, tableNumber } = req.body || {};
 
-    if (!dishName || !amount) {
+    if (!dishName || amount == null || amount === '') {
       return res.status(400).json({ error: 'dishName and amount are required' });
+    }
+
+    // A non-numeric amount used to be stored as NaN (null on disk) and then
+    // silently dropped out of the wastage total.
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount < 0 || parsedAmount > 100000) {
+      return res.status(400).json({ error: 'amount must be a number between 0 and 100000' });
+    }
+    const parsedQty = quantity == null || quantity === '' ? 1 : Math.floor(Number(quantity));
+    if (!Number.isFinite(parsedQty) || parsedQty < 1 || parsedQty > 100) {
+      return res.status(400).json({ error: 'quantity must be a whole number between 1 and 100' });
     }
 
     const returned = {
       id: data.nextReturnId,
-      dishName,
-      quantity: quantity || 1,
-      reason: reason || 'Incorrectly prepared',
-      amount: parseFloat(amount),
-      tableNumber: tableNumber || '',
+      dishName: String(dishName).trim().slice(0, 80),
+      quantity: parsedQty,
+      reason: String(reason || 'Incorrectly prepared').trim().slice(0, 160),
+      amount: parsedAmount,
+      tableNumber: String(tableNumber || '').slice(0, 12),
       createdAt: new Date().toISOString(),
     };
 
@@ -1490,10 +1555,10 @@ app.post('/api/returned-dish', (req, res) => {
 // ─── HELP / COMPLAINT REPORT API ────────────────────────────────────────
 
 // POST /api/help-report — Staff records a complaint/note (title + description)
-app.post('/api/help-report', (req, res) => {
+app.post('/api/help-report', requireStaffAuth, (req, res) => {
   try {
     const data = readJSON(KITCHEN_FILE);
-    const { title, description, requestedBy, tableNumber } = req.body;
+    const { title, description, requestedBy, tableNumber } = req.body || {};
 
     if (!title || !description) {
       return res.status(400).json({ error: 'title and description are required' });
@@ -1501,10 +1566,10 @@ app.post('/api/help-report', (req, res) => {
 
     const report = {
       id: data.nextHelpId,
-      title: title.trim(),
-      description: description.trim(),
-      requestedBy: requestedBy || 'Staff',
-      tableNumber: tableNumber || '',
+      title: String(title).trim().slice(0, 120),
+      description: String(description).trim().slice(0, 2000),
+      requestedBy: String(requestedBy || 'Staff').trim().slice(0, 60) || 'Staff',
+      tableNumber: String(tableNumber || '').slice(0, 12),
       status: 'open',
       createdAt: new Date().toISOString(),
       resolvedAt: null,
@@ -1524,8 +1589,8 @@ app.post('/api/help-report', (req, res) => {
   }
 });
 
-// GET /api/help-reports — Fetch all open help reports
-app.get('/api/help-reports', (req, res) => {
+// GET /api/help-reports — Fetch all open help reports (staff)
+app.get('/api/help-reports', requireStaffAuth, (req, res) => {
   try {
     const data = readJSON(KITCHEN_FILE);
     const openReports = (data.helpReports || []).filter(r => r.status === 'open');
@@ -1645,13 +1710,32 @@ app.put('/api/menu/:id', requireManagerAuth, (req, res) => {
   try {
     const menu = readJSON(MENU_FILE);
     const itemId = parseInt(req.params.id);
-    const { name, price, available } = req.body;
+    const { name, price, available } = req.body || {};
+
+    // Same checks as POST /api/menu. Unvalidated input used to store
+    // price: NaN (written as null, which priced the dish at ₹0 and broke the
+    // menu screens) and available: "false" (a truthy string — still available).
+    let cleanName;
+    if (name !== undefined) {
+      cleanName = String(name).trim().slice(0, 80);
+      if (!cleanName) return res.status(400).json({ error: 'name cannot be empty' });
+    }
+    let cleanPrice;
+    if (price !== undefined) {
+      cleanPrice = Number(price);
+      if (!Number.isFinite(cleanPrice) || cleanPrice < 0 || cleanPrice > 100000) {
+        return res.status(400).json({ error: 'price must be a number between 0 and 100000' });
+      }
+    }
+    if (available !== undefined && typeof available !== 'boolean') {
+      return res.status(400).json({ error: 'available must be true or false' });
+    }
 
     for (const cat of Object.keys(menu.categories)) {
       const item = menu.categories[cat].find((i) => i.id === itemId);
       if (item) {
-        if (name !== undefined) item.name = name;
-        if (price !== undefined) item.price = parseFloat(price);
+        if (cleanName !== undefined) item.name = cleanName;
+        if (cleanPrice !== undefined) item.price = cleanPrice;
         if (available !== undefined) item.available = available;
 
         writeJSON(MENU_FILE, menu);
@@ -1949,6 +2033,14 @@ app.put('/api/orders/:id/items/:itemIndex/status', requireStaffAuth, (req, res) 
     const item = order.items[itemIndex];
     if (!item) return res.status(404).json({ error: 'Item not found at this index' });
 
+    // Tapping an item on a stale screen used to drag a delivered order back to
+    // 'cooking'/'ready' — it then vanished from today's revenue.
+    if (order.status === 'delivered') {
+      return res.status(409).json({
+        error: 'Order #' + orderId + ' is already delivered — item status cannot change.',
+      });
+    }
+
     item.status = status;
     order.updatedAt = new Date().toISOString();
 
@@ -2078,7 +2170,12 @@ app.get('/api/analytics', (req, res) => {
     };
 
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
+    // Local calendar day, matching the byDay/byMonth buckets below. Using the
+    // UTC date here meant a 01:00 order counted as yesterday in "today" while
+    // the daily chart showed it today.
+    const fmtLocalDate = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const todayStr = fmtLocalDate(now);
 
     // Start of this week (Sunday)
     const startOfWeek = new Date(now);
@@ -2101,9 +2198,6 @@ app.get('/api/analytics', (req, res) => {
     const weekMap = {};  // Sunday date 'YYYY-MM-DD' -> { revenue, orders }
     const dayMap = {};   // 'YYYY-MM-DD' -> { revenue, orders }
 
-    const fmtLocalDate = (d) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
     for (const order of completedOrders) {
       let orderItemCount = 0;
       let orderTotal = 0;
@@ -2111,7 +2205,9 @@ app.get('/api/analytics', (req, res) => {
       for (const item of order.items) {
         const qty = item.quantity || 1;
         const price = priceMap[item.name.toLowerCase()] || 0;
-        const lineTotal = price * qty;
+        // A loyalty redemption is free: counting the menu price as revenue
+        // overstated sales by the value of every dish given away.
+        const lineTotal = item.redeemed ? 0 : price * qty;
 
         orderItemCount += qty;
         orderTotal += lineTotal;
@@ -2120,6 +2216,9 @@ app.get('/api/analytics', (req, res) => {
         itemSales[item.name] = (itemSales[item.name] || 0) + qty;
         itemRevenue[item.name] = (itemRevenue[item.name] || 0) + lineTotal;
       }
+
+      // ...and a points discount is money the guest did not pay.
+      orderTotal = Math.max(0, orderTotal - (order.discount || 0));
 
       totalRevenue += orderTotal;
       totalItemsSold += orderItemCount;
@@ -2139,8 +2238,8 @@ app.get('/api/analytics', (req, res) => {
       timeSlots[slot].revenue += orderTotal;
       timeSlots[slot].items += orderItemCount;
 
-      // Period-based revenue
-      const orderDate = createdAt.toISOString().slice(0, 10);
+      // Period-based revenue (same local calendar day as the charts)
+      const orderDate = fmtLocalDate(createdAt);
       if (orderDate === todayStr) {
         revenueToday += orderTotal;
         ordersToday++;

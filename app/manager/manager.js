@@ -899,15 +899,36 @@
     const tiers = Array.from(dom.loyaltyTiers.querySelectorAll('.loyalty-tier-row')).map((row) => ({
       key: row.querySelector('[data-tier-field="minSpent"]').dataset.tierKey,
       name: row.querySelector('.loyalty-tier-name').textContent.trim(),
-      minSpent: parseFloat(row.querySelector('[data-tier-field="minSpent"]').value) || 0,
-      multiplier: parseFloat(row.querySelector('[data-tier-field="multiplier"]').value) || 1,
+      minSpent: parseFloat(row.querySelector('[data-tier-field="minSpent"]').value),
+      multiplier: parseFloat(row.querySelector('[data-tier-field="multiplier"]').value),
     }));
 
+    // An emptied field used to be sent as 1 point per ₹100 / 0% discount — i.e.
+    // silently saved a different loyalty programme. Refuse instead.
+    const perHundred = parseFloat(dom.loyaltyRulePerHundred.value);
+    const spendPct = parseFloat(dom.loyaltyRuleSpendPct.value);
+    const valuePct = parseFloat(dom.loyaltyRuleValuePct.value);
+    const birthday = parseInt(dom.loyaltyRuleBirthday.value, 10);
+
+    if (!Number.isFinite(perHundred) || perHundred < 1 || perHundred > 1000) {
+      showToast('Points per ₹100 must be between 1 and 1000', 'error');
+      dom.loyaltyRulePerHundred.focus();
+      return;
+    }
+    if (!Number.isFinite(spendPct) || spendPct < 0 || spendPct > 100 || !Number.isFinite(valuePct) || valuePct < 0 || valuePct > 100) {
+      showToast('Discount percentages must be between 0 and 100', 'error');
+      return;
+    }
+    if (tiers.some((t) => !Number.isFinite(t.minSpent) || t.minSpent < 0 || !Number.isFinite(t.multiplier) || t.multiplier < 0.1)) {
+      showToast('Check each tier\u2019s minimum spend and multiplier', 'error');
+      return;
+    }
+
     const body = {
-      pointsPerHundred: parseFloat(dom.loyaltyRulePerHundred.value) || 1,
-      discountSpendPct: (parseFloat(dom.loyaltyRuleSpendPct.value) || 0) / 100,
-      discountValuePct: (parseFloat(dom.loyaltyRuleValuePct.value) || 0) / 100,
-      birthdayBonus: parseInt(dom.loyaltyRuleBirthday.value, 10) || 0,
+      pointsPerHundred: perHundred,
+      discountSpendPct: spendPct / 100,
+      discountValuePct: valuePct / 100,
+      birthdayBonus: Number.isFinite(birthday) && birthday >= 0 ? birthday : 0,
       tiers,
     };
 

@@ -407,7 +407,7 @@
           <span class="item-available"></span>
 
           <span class="item-name">${escapeHtml(item.name)}</span>
-          <span class="item-price">₹${item.price.toFixed(2)}</span>
+          <span class="item-price">₹${formatPrice(item.price)}</span>
           <span class="item-tap-hint">Tap to customize</span>
         </div>
       `
@@ -782,7 +782,7 @@
         (item) => `
         <div class="edit-menu-item ${item.available ? '' : 'unavailable'}" data-id="${item.id}" data-category="${category}">
           <span class="edit-menu-item-name">${escapeHtml(item.name)}</span>
-          <span class="edit-menu-item-price">₹${item.price.toFixed(2)}</span>
+          <span class="edit-menu-item-price">₹${formatPrice(item.price)}</span>
         </div>
       `
       )
@@ -1002,7 +1002,7 @@
   function openModifierModal(item, category) {
     state.selectedItem = { ...item, category };
     dom.modalItemName.textContent = item.name;
-    dom.modalItemPrice.textContent = `₹${item.price.toFixed(2)}`;
+    dom.modalItemPrice.textContent = `₹${formatPrice(item.price)}`;
     dom.modifierInput.value = '';
     dom.qtyValue.textContent = '1';
     $$('.quick-mod').forEach((btn) => btn.classList.remove('active'));
@@ -1326,6 +1326,9 @@
         showToast('Confirm the guest agreed to earn points', 'error');
         return;
       }
+      // Points are money-equivalent: a double click must not earn them twice.
+      if (dom.waiterPointsSubmit.disabled) return;
+      dom.waiterPointsSubmit.disabled = true;
       try {
         const res = await fetch('/api/loyalty/manual-earn', {
           method: 'POST',
@@ -1339,6 +1342,8 @@
       } catch (err) {
         console.error('Manual earn error:', err);
         showToast(err.message || 'Could not add points', 'error');
+      } finally {
+        dom.waiterPointsSubmit.disabled = false;
       }
     }
     dom.waiterPointsSubmit.addEventListener('click', submitManualEarn);
@@ -1627,6 +1632,13 @@
   }
 
   // ─── HTML Escape (prevents XSS from menu item names/modifiers) ────
+  // Menu prices are numbers, but a manually edited data file (or an old entry)
+  // can hold null — `null.toFixed` used to blank the whole menu grid.
+  function formatPrice(value) {
+    const n = Number(value);
+    return (Number.isFinite(n) ? n : 0).toFixed(2);
+  }
+
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, (ch) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])

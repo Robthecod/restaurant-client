@@ -627,6 +627,52 @@ test('order auth: manager toggle, staff tokens, single-use table tokens', async 
     });
     assert.strictEqual(authedStatus.status, 200, 'staff token can change status');
 
+    // A stale screen tapping an item must not drag a delivered order backwards
+    const regress = await fetch(`${B2}/api/orders/${order.id}/items/0/status`, {
+      method: 'PUT',
+      headers: staffHeaders,
+      body: JSON.stringify({ status: 'cooking' }),
+    });
+    assert.strictEqual(regress.status, 409, 'item status cannot change on a delivered order');
+    const stillDelivered = await (
+      await fetch(`${B2}/api/orders/${order.id}`, { headers: { 'x-auth-token': token } })
+    ).json();
+    assert.strictEqual(stillDelivered.status, 'delivered', 'the order stays delivered');
+
+    // Staff records are no longer writable or readable by a guest on the LAN
+    const anonIngredient = await fetch(`${B2}/api/ingredient-request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ingredient: 'Saffron', quantity: '1kg' }),
+    });
+    assert.strictEqual(anonIngredient.status, 401, 'ingredient requests need staff auth');
+
+    const anonHelp = await fetch(`${B2}/api/help-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Spam', description: 'from a guest phone' }),
+    });
+    assert.strictEqual(anonHelp.status, 401, 'help reports need staff auth');
+
+    const anonReturned = await fetch(`${B2}/api/returned-dish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dishName: item.name, quantity: 1, amount: 100 }),
+    });
+    assert.strictEqual(anonReturned.status, 401, 'returned dishes need staff auth');
+
+    for (const url of ['/api/ingredient-requests', '/api/help-reports']) {
+      assert.strictEqual((await fetch(`${B2}${url}`)).status, 401, `${url} needs staff auth`);
+      assert.strictEqual((await fetch(`${B2}${url}`, { headers: { 'x-auth-token': token } })).status, 200, `${url} opens with a token`);
+    }
+
+    const staffIngredient = await fetch(`${B2}/api/ingredient-request`, {
+      method: 'POST',
+      headers: staffHeaders,
+      body: JSON.stringify({ ingredient: 'Saffron', quantity: '1kg' }),
+    });
+    assert.strictEqual(staffIngredient.status, 201, 'staff can still file requests');
+
     // Table tokens: minted by staff, required by customers, single-use
     const mint = await fetch(`${B2}/api/orders/table-token`, {
       method: 'POST',
@@ -839,6 +885,13 @@ test('order auth: manager toggle, staff tokens, single-use table tokens', async 
     });
     assert.strictEqual(reopened.status, 201, 'with auth off anyone can order again');
 
+    const anonAgain = await fetch(`${B2}/api/ingredient-request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ingredient: 'Salt', quantity: '2kg' }),
+    });
+    assert.strictEqual(anonAgain.status, 201, 'with auth off staff endpoints behave as before');
+
     // Auth off restores the old behaviour: every socket behaves as staff
     const reopenedOrder = await reopened.json();
     const plainSocket = await openSocket(B2);
@@ -855,5 +908,136 @@ test('order auth: manager toggle, staff tokens, single-use table tokens', async 
   } finally {
     child2.kill();
     await new Promise((r) => setTimeout(r, 200));
+  }
+});
+
+test('menu updates reject junk instead of storing it', async () => {
+  const menu = await (await fetch(`${BASE}/api/menu`)).json();
+  const item = Object.values(menu.categories).flat()[0];
+  const before = { price: item.price, available: item.available };
+  const put = (body) =>
+    fetch(`${BASE}/api/menu/${item.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  assert.strictEqual((await put({ price: 'free' })).status, 400, 'non-numeric price refused');
+  assert.strictEqual((await put({ available: 'false' })).status, 400, 'non-boolean availability refused');
+  assert.strictEqual((await put({ name: '   ' })).status, 400, 'blank name refused');
+
+  const after = await (await fetch(`${BASE}/api/menu`)).json();
+  const stored = Object.values(after.categories).flat().find((i) => i.id === item.id);
+  assert.deepStrictEqual(
+    { price: stored.price, available: stored.available },
+    before,
+    'a rejected update changed nothing (price stayed a real number)'
+  );
+  assert.strictEqual(typeof stored.price, 'number');
+
+  assert.strictEqual((await put({ price: before.price, available: before.available })).status, 200, 'valid updates still work');
+});
+
+test('loyalty registration and rules reject junk', async () => {
+  const register = (body) =>
+    fetch(`${BASE}/api/loyalty/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  assert.strictEqual((await register({ phone: '123', name: 'Junk' })).status, 400, 'short phone refused');
+  const good = await register({ phone: '9876501111', name: 'Valid Guest' });
+  assert.strictEqual(good.status, 201, 'a real 10-digit phone registers');
+  assert.strictEqual((await good.json()).phone, '9876501111');
+
+  const before = await (await fetch(`${BASE}/api/loyalty/settings`)).json();
+  const save = (body) =>
+    fetch(`${BASE}/api/loyalty/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  assert.strictEqual((await save({ pointsPerHundred: 'abc' })).status, 400, 'typo in the earn rate refused');
+  assert.strictEqual((await save({ discountValuePct: 'half' })).status, 400, 'typo in a percentage refused');
+  assert.strictEqual((await save({ tiers: [{ key: 'a', name: 'A' }] })).status, 400, 'a single tier refused');
+
+  const after = await (await fetch(`${BASE}/api/loyalty/settings`)).json();
+  assert.strictEqual(after.pointsPerHundred, before.pointsPerHundred, 'the rate was not silently rewritten');
+  assert.strictEqual(after.discountValuePct, before.discountValuePct, 'the discount was not silently rewritten');
+
+  const ok = await save({
+    pointsPerHundred: before.pointsPerHundred,
+    discountSpendPct: before.discountSpendPct,
+    discountValuePct: before.discountValuePct,
+    birthdayBonus: before.birthdayBonus,
+    tiers: before.tiers,
+  });
+  assert.strictEqual(ok.status, 200, 'valid rules still save');
+});
+
+test('returned dishes need a real amount', async () => {
+  const post = (body) =>
+    fetch(`${BASE}/api/returned-dish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  assert.strictEqual((await post({ dishName: 'Veg Biryani', quantity: 1, amount: 'abc' })).status, 400, 'junk amount refused');
+  assert.strictEqual((await post({ dishName: 'Veg Biryani', quantity: 0, amount: 100 })).status, 400, 'zero quantity refused');
+  assert.strictEqual((await post({ dishName: 'Veg Biryani', quantity: 1, amount: 299 })).status, 201, 'a real return still records');
+});
+
+// The restaurant serves past midnight (there is a "Late Night (22-6)" bucket),
+// so a 02:00 order must be today's revenue — and loyalty giveaways/discounts
+// must not be counted as money taken.
+test('analytics counts late-night orders today and only money actually paid', async () => {
+  const ordersPath = path.join(DATA_DIR, 'orders.json');
+  const original = fs.readFileSync(ordersPath);
+  const now = new Date();
+  const at = (h) => {
+    const d = new Date(now);
+    d.setHours(h, 0, 0, 0);
+    return d.toISOString();
+  };
+  const menu = await (await fetch(`${BASE}/api/menu`)).json();
+  const item = Object.values(menu.categories).flat().find((i) => i.available && i.price > 0);
+  const line = (price, extra) => ({ name: item.name, quantity: 1, price, status: 'ready', ...(extra || {}) });
+
+  try {
+    fs.writeFileSync(
+      ordersPath,
+      JSON.stringify(
+        {
+          nextId: 4,
+          orders: [
+            { id: 1, tableNumber: '01', waiterName: 'T', status: 'delivered', createdAt: at(2), items: [line(item.price)] },
+            {
+              id: 2,
+              tableNumber: '02',
+              waiterName: 'T',
+              status: 'delivered',
+              createdAt: at(10),
+              items: [line(item.price), line(0, { redeemed: true, pointsCost: item.price })],
+            },
+            { id: 3, tableNumber: '03', waiterName: 'T', status: 'delivered', createdAt: at(12), discount: 10, items: [line(item.price)] },
+          ],
+        },
+        null,
+        2
+      )
+    );
+
+    const a = await (await fetch(`${BASE}/api/analytics`)).json();
+    const localDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const day = a.sales.byDay.find((d) => d.key === localDay);
+    const paid = item.price * 3 - 10;
+
+    assert.strictEqual(a.periods.today.orders, 3, 'the 02:00 order belongs to today');
+    assert.strictEqual(a.periods.today.revenue, paid, 'redeemed item excluded, discount subtracted');
+    assert.strictEqual(day.revenue, paid, 'the daily chart agrees with the today card');
+  } finally {
+    fs.writeFileSync(ordersPath, original);
   }
 });

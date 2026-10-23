@@ -236,7 +236,7 @@
           <span class="item-available"></span>
 
           <span class="item-name">${item.name}</span>
-          <span class="item-price">₹${item.price.toFixed(2)}</span>
+          <span class="item-price">₹${formatPrice(item.price)}</span>
           <span class="item-tap-hint">Tap to customize</span>
         </div>
       `
@@ -478,6 +478,12 @@
     openRedeemModal(); // re-render the list with the new state
   }
 
+  // A menu entry with a missing price must not blank the whole menu.
+  function formatPrice(value) {
+    const n = Number(value);
+    return (Number.isFinite(n) ? n : 0).toFixed(2);
+  }
+
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, (ch) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])
@@ -663,7 +669,7 @@
     state.selectedItem = { ...item, category };
 
     dom.modalItemName.textContent = item.name;
-    dom.modalItemPrice.textContent = `₹${item.price.toFixed(2)}`;
+    dom.modalItemPrice.textContent = `₹${formatPrice(item.price)}`;
     dom.modalModifier.value = '';
     dom.modalQtyValue.textContent = '1';
     $$('.customer-qmod').forEach((btn) => btn.classList.remove('active'));
