@@ -9,6 +9,7 @@
     openRequests: [], // open ingredient requests
     openReports: [], // open help/complaint reports
     pin: sessionStorage.getItem('chauka_manager_pin') || '', // manager PIN (session)
+    staffCode: '', // today's staff code, shown on the Security tab
   };
 
   // ─── DOM References ────────────────────────────────────────────────
@@ -64,6 +65,9 @@
     waCard: $('#waCard'),
     // Order security
     securityView: $('#securityView'),
+    staffCodeValue: $('#staffCodeValue'),
+    staffCodeCopy: $('#staffCodeCopy'),
+    staffCodeExpiry: $('#staffCodeExpiry'),
     orderAuthToggle: $('#orderAuthToggle'),
     orderAuthStatus: $('#orderAuthStatus'),
     notifBell: $('#notifBell'),
@@ -104,6 +108,21 @@
     setupPinGateListeners();
     setupMapListeners();
     enforcePinGate();
+    // Already unlocked this session (PIN in sessionStorage) → load the code and
+    // give this device staff access without asking for it again.
+    if (state.pin) fetchStaffCode();
+    if (dom.staffCodeCopy) {
+      dom.staffCodeCopy.addEventListener('click', async () => {
+        const code = state.staffCode || (dom.staffCodeValue ? dom.staffCodeValue.textContent : '');
+        if (!code || code.includes('•')) return;
+        try {
+          await navigator.clipboard.writeText(code);
+          showToast(`Copied ${code} — share it with your team`, 'success');
+        } catch (err) {
+          showToast('Could not copy — read it off the screen', 'error');
+        }
+      });
+    }
     if (dom.orderAuthToggle) {
       dom.orderAuthToggle.addEventListener('change', () => saveOrderAuth(dom.orderAuthToggle.checked));
       fetchOrderAuth();
@@ -147,6 +166,7 @@
         sessionStorage.setItem('chauka_manager_pin', pin);
         hidePinGate();
         showToast('Manager unlocked', 'success');
+        fetchStaffCode(); // also signs this device in for order data
       } else {
         dom.mgrPinError.style.display = 'block';
         dom.mgrPinInput.value = '';
@@ -723,6 +743,7 @@
       dom.securityView.style.display = '';
       dom.mgrSubtitle.textContent = 'Order Security';
       fetchOrderAuth();
+      fetchStaffCode();
     } else if (tab === 'map') {
       dom.menuView.style.display = 'none';
       dom.analyticsView.style.display = 'none';
@@ -747,7 +768,11 @@
     // never fires for them and they would stay invisible (opacity 0). Reveal
     // them explicitly now so tab content always appears.
     const view =
-      tab === 'menu' ? dom.menuView : tab === 'loyalty' ? dom.loyaltyView : tab === 'map' ? dom.mapView : dom.analyticsView;
+      tab === 'menu' ? dom.menuView
+        : tab === 'loyalty' ? dom.loyaltyView
+          : tab === 'map' ? dom.mapView
+            : tab === 'security' ? dom.securityView
+              : dom.analyticsView;
     requestAnimationFrame(() => {
       view.querySelectorAll('.reveal-spring').forEach((el) => el.classList.add('visible'));
     });
@@ -947,6 +972,54 @@
     }
   }
 
+  // ─── Daily staff code ────────────────────────────────────────────────
+  // One code for the whole team, rotated at midnight by the server. Reading it
+  // needs the manager PIN, so it stays out of reach of a guest phone.
+  async function fetchStaffCode() {
+    try {
+      const res = await fetch('/api/staff-code', { headers: authHeaders(), cache: 'no-store' });
+      if (res.status === 401) return; // gate is already up; no code to show
+      if (!res.ok) throw new Error('Failed to load');
+      const data = await res.json();
+      state.staffCode = data.code;
+      if (dom.staffCodeValue) dom.staffCodeValue.textContent = data.code;
+      if (dom.staffCodeExpiry) {
+        const until = new Date(data.rotatesAt);
+        const hours = Math.max(0, Math.round(((until - new Date()) / 3600000) * 10) / 10);
+        dom.staffCodeExpiry.textContent = `Valid until midnight (${until.toLocaleString([], {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        })}) — about ${hours}h left.`;
+      }
+      // The manager already proved the stronger PIN: give this device staff
+      // access too, so order screens here don't ask for the code again.
+      adoptStaffAccess(data.code);
+    } catch (err) {
+      console.error('Fetch staff code error:', err);
+    }
+  }
+
+  let staffAccessInFlight = false;
+  async function adoptStaffAccess(code) {
+    if (!code || staffAccessInFlight) return;
+    if (window.ChaukaAuth && window.ChaukaAuth.token) return; // already signed in
+    staffAccessInFlight = true;
+    try {
+      await window.ChaukaAuth.login(code);
+    } catch (err) {
+      console.error('Staff access from manager unlock failed:', err);
+    } finally {
+      staffAccessInFlight = false;
+    }
+  }
+
+  // Keep the code fresh if the page is left open across midnight.
+  setInterval(() => {
+    if (dom.securityView && dom.securityView.style.display !== 'none') fetchStaffCode();
+  }, 60 * 1000);
+
   // ─── Order Auth (manager-controlled hybrid auth) ─────────────────────
   // GET the current state; the server refuses to enable it without a
   // MANAGER_PIN configured, so show its error rather than silently failing.
@@ -958,8 +1031,8 @@
       if (dom.orderAuthToggle) dom.orderAuthToggle.checked = !!s.orderAuth;
       if (dom.orderAuthStatus) {
         dom.orderAuthStatus.textContent = s.orderAuth
-          ? 'ON — QR customers need a one-time table code from the waiter; devices that place or close orders ask for the staff PIN.'
-          : 'OFF — anyone on the network can currently place and close orders.';
+          ? 'ON — QR customers need a one-time table code from the waiter; devices that place or close orders ask for today\u2019s staff code.'
+          : 'OFF — anyone on the network can currently place and close orders. Your staff code below still works for signing devices in once auth is on.';
       }
     } catch (err) {
       console.error('Fetch order auth error:', err);

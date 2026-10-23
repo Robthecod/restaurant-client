@@ -57,7 +57,12 @@ http://localhost:3000/app/hub/
 | `LICENSE_CHECK_INTERVAL_HOURS` | ❌ | Check every N hours (default: once daily) |
 | `PORT` | ❌ | Server port (default: `3000`) |
 | `WHATSAPP_NUMBER` | ❌ | WhatsApp number for customer links |
-| `MANAGER_PIN` | ❌ | PIN protecting manager edits |
+| `MANAGER_PIN` | ❌ | The manager's own PIN (default `0000`) — protects menu/loyalty edits, the order-auth switch and the staff code |
+| `STAFF_TOKEN_TTL_MINUTES` | ❌ | How long a staff device stays signed in (default: `480` = 8 h) |
+
+Staff do **not** use `MANAGER_PIN`. They use **today's staff code**, shown on the manager panel's **Security** tab: 6 characters (e.g. `A3F9C2`), shared with the team each day, entered once per device. It rotates by itself at midnight.
+
+> The staff code is only as private as `MANAGER_PIN`: with the default `0000`, anyone who guesses it can open the manager panel and read today's code. Set a real PIN on networks you don't control.
 
 ---
 

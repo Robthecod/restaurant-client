@@ -15,6 +15,10 @@ const PORT = 3300 + Math.floor(Math.random() * 800);
 const BASE = `http://localhost:${PORT}`;
 const SERVER = path.join(__dirname, '..', 'server.js');
 
+// MANAGER_PIN defaults to 0000 in server.js, so manager routes always need the
+// header — including on this test server, which sets no env vars.
+const MANAGER = { 'Content-Type': 'application/json', 'x-manager-pin': '0000' };
+
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DATA_FILES = ['orders.json', 'kitchen.json', 'tables.json', 'customers.json', 'menu.json', 'settings.json'];
 
@@ -207,7 +211,7 @@ test('loyalty APIs respond and validate input', async () => {
 test('floor map API saves and serves a map', async () => {
   const save = await fetch(`${BASE}/api/map`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: MANAGER,
     body: JSON.stringify({
       width: 800,
       height: 500,
@@ -228,7 +232,7 @@ test('floor map API saves and serves a map', async () => {
   // Reset the map so test runs leave the data file clean
   await fetch(`${BASE}/api/map`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: MANAGER,
     body: JSON.stringify({ width: 800, height: 500, image: null, tables: [] }),
   });
 });
@@ -362,7 +366,7 @@ test('redemption cost comes from the menu, not the request', async () => {
   const setRate = (pointsPerHundred) =>
     fetch(`${BASE}/api/loyalty/settings`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: MANAGER,
       body: JSON.stringify({ ...original, pointsPerHundred }),
     });
   const placeOrder = async (body) => {
@@ -434,7 +438,7 @@ test('security headers are set and CORS is same-origin only', async () => {
 test('menu prices must be real numbers', async () => {
   const bad = await fetch(`${BASE}/api/menu`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: MANAGER,
     body: JSON.stringify({ category: 'starters', name: 'NaN dish', price: 'not-a-number' }),
   });
   assert.strictEqual(bad.status, 400, 'non-numeric price rejected');
@@ -593,22 +597,42 @@ test('order auth: manager toggle, staff tokens, single-use table tokens', async 
     });
     assert.strictEqual(openStatus.status, 401, 'status changes now need staff auth');
 
-    // Login: wrong PIN refused, right PIN issues a token
+    // Staff sign in with TODAY'S CODE, not the manager PIN
+    const codeNoPin = await fetch(`${B2}/api/staff-code`);
+    assert.strictEqual(codeNoPin.status, 401, 'the staff code is manager-only to read');
+
+    const codeRes = await fetch(`${B2}/api/staff-code`, { headers: { 'x-manager-pin': PIN } });
+    assert.strictEqual(codeRes.status, 200, 'the manager can read the staff code');
+    const { code, day, rotatesAt } = await codeRes.json();
+    assert.match(code, /^[0-9A-F]{6}$/, 'the code is 6 characters');
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(day), 'the code is tied to a calendar day');
+    assert.ok(new Date(rotatesAt) > new Date(), 'it rotates in the future');
+
+    const codeAgain = await (await fetch(`${B2}/api/staff-code`, { headers: { 'x-manager-pin': PIN } })).json();
+    assert.strictEqual(codeAgain.code, code, 'the code is stable within the day');
+
     const badLogin = await fetch(`${B2}/api/auth/staff-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: '9999' }),
+      body: JSON.stringify({ code: 'ZZZZZZ' }),
     });
-    assert.strictEqual(badLogin.status, 401, 'wrong staff PIN refused');
+    assert.strictEqual(badLogin.status, 401, 'a wrong staff code is refused');
+
+    const managerPinLogin = await fetch(`${B2}/api/auth/staff-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: PIN }),
+    });
+    assert.strictEqual(managerPinLogin.status, 401, 'the manager PIN is not a staff code');
 
     const goodLogin = await fetch(`${B2}/api/auth/staff-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: PIN }),
+      body: JSON.stringify({ code }),
     });
     assert.strictEqual(goodLogin.status, 200);
     const { token } = await goodLogin.json();
-    assert.ok(token && token.length >= 32, 'a staff token was issued');
+    assert.ok(token && token.length >= 32, 'a staff token was issued for the daily code');
 
     // The token unlocks staff mutations
     const staffHeaders = { 'Content-Type': 'application/json', 'x-auth-token': token };
@@ -918,7 +942,7 @@ test('menu updates reject junk instead of storing it', async () => {
   const put = (body) =>
     fetch(`${BASE}/api/menu/${item.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: MANAGER,
       body: JSON.stringify(body),
     });
 
@@ -955,7 +979,7 @@ test('loyalty registration and rules reject junk', async () => {
   const save = (body) =>
     fetch(`${BASE}/api/loyalty/settings`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: MANAGER,
       body: JSON.stringify(body),
     });
 
@@ -987,6 +1011,34 @@ test('returned dishes need a real amount', async () => {
   assert.strictEqual((await post({ dishName: 'Veg Biryani', quantity: 1, amount: 'abc' })).status, 400, 'junk amount refused');
   assert.strictEqual((await post({ dishName: 'Veg Biryani', quantity: 0, amount: 100 })).status, 400, 'zero quantity refused');
   assert.strictEqual((await post({ dishName: 'Veg Biryani', quantity: 1, amount: 299 })).status, 201, 'a real return still records');
+});
+
+test('the staff code rotates daily but is stable within a day', () => {
+  const codes = require('../staff-code');
+  const secret = 'test-secret-0123456789';
+  const monday = new Date(2026, 9, 19, 0, 0, 0);
+  const mondayLate = new Date(2026, 9, 19, 23, 59, 0);
+  const tuesday = new Date(2026, 9, 20, 0, 1, 0);
+
+  assert.strictEqual(codes.dayKey(monday), '2026-10-19');
+  assert.strictEqual(codes.dayKey(mondayLate), '2026-10-19', 'still the same day at 23:59');
+  assert.strictEqual(
+    codes.derive(secret, codes.dayKey(monday)),
+    codes.derive(secret, codes.dayKey(mondayLate)),
+    'the code does not change during the day'
+  );
+  assert.notStrictEqual(
+    codes.derive(secret, codes.dayKey(monday)),
+    codes.derive(secret, codes.dayKey(tuesday)),
+    'a new day means a new code'
+  );
+  assert.notStrictEqual(
+    codes.derive(secret, '2026-10-19'),
+    codes.derive('another-install-secret', '2026-10-19'),
+    'codes are per install, not global'
+  );
+  assert.match(codes.derive(secret, '2026-10-19'), /^[0-9A-F]{6}$/);
+  assert.strictEqual(codes.rotatesAt(mondayLate).getDate(), 20, 'rotation happens at midnight');
 });
 
 // The restaurant serves past midnight (there is a "Late Night (22-6)" bucket),

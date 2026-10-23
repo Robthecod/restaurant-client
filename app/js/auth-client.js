@@ -132,14 +132,14 @@
     });
   }
 
-  // Verify a PIN with the server; caches the staff token on success.
-  function login(pin) {
+  // Verify the code with the server; caches the staff token on success.
+  function login(code) {
     return fetch('/api/auth/staff-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: pin }),
+      body: JSON.stringify({ code: code }),
     }).then(function (res) {
-      if (!res.ok) throw new Error('Invalid PIN');
+      if (!res.ok) throw new Error('Invalid staff code');
       return res.json();
     }).then(function (data) {
       if (data.token) {
@@ -156,13 +156,13 @@
   function promptForPin(attemptMessage) {
     return showModal({
       title: 'Staff access',
-      message: attemptMessage || 'Enter the staff PIN to continue.',
-      inputPlaceholder: 'PIN',
+      message: attemptMessage || 'Enter today\u2019s staff code. Ask your manager for it.',
+      inputPlaceholder: 'Staff code',
       confirmLabel: 'Unlock',
-    }).then(function (pin) {
-      if (pin == null) return null;
-      return login(pin).catch(function () {
-        return promptForPin('Wrong PIN. Try again.');
+    }).then(function (code) {
+      if (code == null) return null;
+      return login(code).catch(function () {
+        return promptForPin('That code is wrong or expired. Ask your manager for today\u2019s code.');
       });
     });
   }

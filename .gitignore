@@ -5,3 +5,6 @@ licensing-data/
 data/license.json
 .DS_Store
 Thumbs.db
+# Runtime state / secrets — never committed
+data/settings.json
+data/staffcode.json
