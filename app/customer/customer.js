@@ -79,6 +79,7 @@
     loyaltyBirthday: $('#loyaltyBirthday'),
     loyaltyRegisterBtn: $('#loyaltyRegisterBtn'),
     loyaltyStatus: $('#loyaltyStatus'),
+    loyaltyInputRow: $('#loyaltyInputRow'),
     redeemBtn: $('#custRedeemBtn'),
     redeemModal: $('#custRedeemModal'),
     redeemBalance: $('#redeemBalance'),
@@ -124,6 +125,7 @@
     client.on('_connected', () => {
       state.socketConnected = true;
       dom.connDot.className = 'conn-indicator connected';
+      if (state.loyaltyPhone) client.emit('watch_loyalty', state.loyaltyPhone);
     });
 
     client.on('_disconnected', () => {
@@ -167,6 +169,15 @@
         }
       }
     });
+  }
+
+  // Staff-only events are gated when order auth is ON, so a guest device asks
+  // to follow just its own account instead of receiving the whole customer list.
+  function watchLoyalty(phone) {
+    if (!phone) return;
+    const client = RestaurantSocket.getInstance();
+    client.connect();
+    client.emit('watch_loyalty', phone);
   }
 
   // ─── Fetch Menu ──────────────────────────────────────────────────────
@@ -332,6 +343,7 @@
         dom.loyaltyStatus.style.display = 'none';
         dom.redeemBtn.style.display = 'none';
       }
+      watchLoyalty(state.loyaltyPhone);
     } catch (_) {
       showToast('Could not check loyalty. Try again!', 'error');
     }

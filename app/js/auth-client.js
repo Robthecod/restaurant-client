@@ -142,7 +142,12 @@
       if (!res.ok) throw new Error('Invalid PIN');
       return res.json();
     }).then(function (data) {
-      if (data.token) setToken(data.token);
+      if (data.token) {
+        setToken(data.token);
+        // Live socket updates are staff-only while auth is ON; tell the socket
+        // client it may now claim staff access (see socket-client.js).
+        try { window.dispatchEvent(new Event('chauka:staff-auth')); } catch (e) { /* old browser */ }
+      }
       return data;
     });
   }

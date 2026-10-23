@@ -411,7 +411,7 @@ function awardLoyaltyForOrder(order) {
     order.loyaltyEarned = earned + bonusEarned;
 
     writeLoyalty(loyalty);
-    io.emit('loyalty_updated', loyaltyCustomerPublic(customer));
+    emitLoyaltyUpdate(customer);
     console.log(`  Loyalty: +${order.loyaltyEarned} pts for ${phone} (order #${order.id})`);
   } catch (err) {
     console.error('Loyalty award error:', err);
@@ -517,7 +517,7 @@ function applyLoyaltyRedemption(data, order, body) {
   }
 
   writeLoyalty(loyalty);
-  io.emit('loyalty_updated', loyaltyCustomerPublic(customer));
+  emitLoyaltyUpdate(customer);
   return { customer: loyaltyCustomerPublic(customer) };
 }
 
@@ -604,7 +604,7 @@ function setLocked(locked, reason) {
   license.lastReason = reason || null;
   saveLicenseState();
   if (changed) {
-    io.emit(locked ? 'license_locked' : 'license_unlocked', {
+    emitStaff(locked ? 'license_locked' : 'license_unlocked', {
       reason: reason || null,
       at: new Date().toISOString(),
     });
@@ -954,7 +954,7 @@ app.post('/api/loyalty/settings', requireManagerAuth, (req, res) => {
       }));
     }
     writeLoyalty(loyalty);
-    io.emit('loyalty_settings_updated', s);
+    emitStaff('loyalty_settings_updated', s);
     res.json(s);
   } catch (err) {
     console.error('Loyalty settings error:', err);
@@ -1038,7 +1038,7 @@ app.post('/api/map', requireManagerAuth, (req, res) => {
     tables: Array.isArray(body.tables) ? body.tables.map(sanitizeTable) : [],
   };
   writeMap(map);
-  io.emit('map_updated', map);
+  emitStaff('map_updated', map);
   res.json({ map });
 });
 
@@ -1186,6 +1186,7 @@ app.post('/api/settings', requireManagerAuth, (req, res) => {
   saveSettings();
   tableTokens.clear();
   if (!orderAuth) staffTokens.clear();
+  resyncSocketAuth(); // flipping the switch also changes who may listen
   console.log('  Order auth ' + (orderAuth ? 'ENABLED' : 'DISABLED') + ' by manager');
   res.json({ ok: true, orderAuth: settings.orderAuth });
 });
@@ -1230,8 +1231,68 @@ function redactOrderForGuests(order) {
   return clone;
 }
 
+// ─── Socket broadcasts ──────────────────────────────────────────────────
+// Guest phones share the restaurant LAN, so with order auth ON an
+// unauthenticated socket must not receive staff payloads (orders carry
+// customer phone numbers). Sockets that present a valid staff token sit in
+// the 'staff' room; everyone else is parked in 'guest' and only gets what a
+// guest screen legitimately shows. With auth OFF every socket is staff, so
+// the system behaves exactly as before.
+function socketTokenIsValid(socket) {
+  if (!settings.orderAuth) return true;
+  const token = String((socket.data && socket.data.authToken) || '');
+  const expiry = token ? staffTokens.get(token) : null;
+  return !!expiry && expiry > Date.now();
+}
+
+function syncSocketAuth(socket) {
+  if (socketTokenIsValid(socket)) {
+    socket.leave('guest');
+    socket.join('staff');
+  } else {
+    socket.leave('staff');
+    socket.join('guest');
+  }
+}
+
+// Re-evaluate every live socket — used when the manager flips the switch and
+// when tokens expire, so no socket keeps access it no longer has.
+function resyncSocketAuth() {
+  for (const socket of io.sockets.sockets.values()) syncSocketAuth(socket);
+}
+
+// Staff-only event when auth is ON — a plain broadcast when it is OFF.
+function emitStaff(event, payload) {
+  if (!settings.orderAuth) return io.emit(event, payload);
+  return io.to('staff').emit(event, payload);
+}
+
+// Extra payload for unauthenticated screens. Only meaningful with auth ON —
+// with it OFF the plain io.emit already reached them.
+function emitGuests(event, payload) {
+  if (!settings.orderAuth) return;
+  return io.to('guest').emit(event, payload);
+}
+
+// Points changed: staff see the full customer record; a guest only gets the
+// update for the number it asked to watch, so no customer's name/phone is
+// pushed to every device on the network.
+function emitLoyaltyUpdate(customer) {
+  const pub = loyaltyCustomerPublic(customer);
+  if (!settings.orderAuth) return io.emit('loyalty_updated', pub);
+  io.to('staff').emit('loyalty_updated', pub);
+  io.to('loyalty:' + pub.phone).emit('loyalty_updated', pub);
+}
+
 // Validates a one-time table token (single-use: consumed by the customer
 // order handler after a successful write, so failed orders keep the code).
+// Tokens expire after STAFF_TOKEN_TTL_MS; drop expired devices out of the
+// staff room so a long-lived socket does not outlive its token.
+setInterval(() => {
+  pruneExpiredTokens();
+  resyncSocketAuth();
+}, 60 * 1000).unref();
+
 function requireTableToken(req, res, next) {
   if (!settings.orderAuth) return next();
   const token = String((req.body && req.body.tableToken) || '').trim();
@@ -1341,7 +1402,7 @@ app.post('/api/ingredient-request', (req, res) => {
     data.ingredientRequests.push(request);
     writeJSON(KITCHEN_FILE, data);
 
-    io.emit('new_ingredient_request', request);
+    emitStaff('new_ingredient_request', request);
     console.log(`  Ingredient request #${request.id}: ${ingredient} — ${quantity} (by ${request.requestedBy})`);
 
     res.status(201).json({ success: true, id: request.id });
@@ -1380,7 +1441,7 @@ app.patch('/api/ingredient-requests/:id/resolve', requireStaffAuth, (req, res) =
     request.resolvedAt = new Date().toISOString();
     writeJSON(KITCHEN_FILE, data);
 
-    io.emit('ingredient_request_resolved', request);
+    emitStaff('ingredient_request_resolved', request);
     console.log(`  Ingredient request #${requestId}: ${request.ingredient} — RESOLVED`);
 
     res.json({ success: true, request });
@@ -1416,7 +1477,7 @@ app.post('/api/returned-dish', (req, res) => {
     data.returnedDishes.push(returned);
     writeJSON(KITCHEN_FILE, data);
 
-    io.emit('new_returned_dish', returned);
+    emitStaff('new_returned_dish', returned);
     console.log(`  Returned dish #${returned.id}: ${dishName} x${returned.quantity} — ₹${returned.amount}`);
 
     res.status(201).json({ success: true, id: returned.id });
@@ -1453,7 +1514,7 @@ app.post('/api/help-report', (req, res) => {
     data.helpReports.push(report);
     writeJSON(KITCHEN_FILE, data);
 
-    io.emit('new_help_report', report);
+    emitStaff('new_help_report', report);
     console.log(`  Help report #${report.id}: ${report.title} (by ${report.requestedBy})`);
 
     res.status(201).json({ success: true, id: report.id });
@@ -1490,7 +1551,7 @@ app.patch('/api/help-reports/:id/resolve', requireStaffAuth, (req, res) => {
     report.resolvedAt = new Date().toISOString();
     writeJSON(KITCHEN_FILE, data);
 
-    io.emit('help_report_resolved', report);
+    emitStaff('help_report_resolved', report);
     console.log(`  Help report #${reportId}: ${report.title} — RESOLVED`);
 
     res.json({ success: true, id: report.id });
@@ -1717,7 +1778,7 @@ app.post('/api/orders/customer', requireTableToken, (req, res) => {
     if (req.validTableToken) tableTokens.delete(req.validTableToken); // single-use
 
     // Broadcast to Kitchen Display
-    io.emit('kitchen_new_order', order);
+    emitStaff('kitchen_new_order', order);
     console.log('  Customer Order #' + order.id + ' placed for Table ' + order.tableNumber);
 
     res.status(201).json({
@@ -1774,7 +1835,7 @@ app.post('/api/orders', requireStaffAuth, (req, res) => {
     writeJSON(ORDERS_FILE, data);
 
     // Broadcast new order to Kitchen Display
-    io.emit('kitchen_new_order', order);
+    emitStaff('kitchen_new_order', order);
     console.log('  Order #' + order.id + ' placed for Table ' + order.tableNumber);
 
     res.status(201).json({
@@ -1825,7 +1886,7 @@ app.put('/api/orders/:id', requireStaffAuth, (req, res) => {
 
     awardLoyaltyForOrder(order); // award points when delivered
     writeJSON(ORDERS_FILE, data);
-    io.emit('order_updated', order);
+    emitStaff('order_updated', order);
 
     res.json(order);
   } catch (err) {
@@ -1855,11 +1916,13 @@ app.put('/api/orders/:id/status', requireStaffAuth, (req, res) => {
 
     // Notify the specific waiter when order is ready
     if (status === 'ready') {
-      io.emit('waiter_order_ready', order);
+      emitStaff('waiter_order_ready', order);
       console.log('  Order #' + orderId + ' marked READY — notified waiter');
     }
 
-    io.emit('order_status_updated', order);
+    emitStaff('order_status_updated', order);
+    // Guests still get live status, but without the loyalty identity.
+    emitGuests('order_status_updated', redactOrderForGuests(order));
 
     res.json(order);
   } catch (err) {
@@ -1905,11 +1968,11 @@ app.put('/api/orders/:id/items/:itemIndex/status', requireStaffAuth, (req, res) 
       orderStatus: newOrderStatus,
     });
 
-    io.emit('order_updated', order);
+    emitStaff('order_updated', order);
 
     // Notify waiter if the order becomes fully ready
     if (newOrderStatus === 'ready' && status === 'ready') {
-      io.emit('waiter_order_ready', order);
+      emitStaff('waiter_order_ready', order);
       console.log('  Order #' + orderId + ' all items READY — notified waiter');
     }
 
@@ -1947,14 +2010,14 @@ app.delete('/api/orders/:id/items/:itemIndex', requireStaffAuth, (req, res) => {
       const orderIndex = data.orders.findIndex((o) => o.id === orderId);
       data.orders.splice(orderIndex, 1);
       writeJSON(ORDERS_FILE, data);
-      io.emit('order_deleted', order);
+      emitStaff('order_deleted', order);
       return res.json({ deleted: true, item: removed, message: 'Order deleted (no items remaining)' });
     }
 
     // Otherwise derive new status and update
     order.status = deriveOrderStatus(order.items);
     writeJSON(ORDERS_FILE, data);
-    io.emit('order_updated', order);
+    emitStaff('order_updated', order);
 
     res.json({ deleted: false, item: removed, order });
   } catch (err) {
@@ -1974,7 +2037,7 @@ app.delete('/api/orders/:id', requireStaffAuth, (req, res) => {
     const removed = data.orders.splice(index, 1)[0];
     writeJSON(ORDERS_FILE, data);
 
-    io.emit('order_deleted', removed);
+    emitStaff('order_deleted', removed);
 
     res.json(removed);
   } catch (err) {
@@ -2233,6 +2296,28 @@ app.get('/api/analytics', (req, res) => {
 
 io.on('connection', (socket) => {
   console.log(`  Client connected: ${socket.id}`);
+
+  // Only a device that proved it holds the staff PIN joins the staff room.
+  // Before this, every order pushed to the network carried the customer's
+  // phone number to any browser on the WiFi.
+  socket.data.authToken = String((socket.handshake.auth && socket.handshake.auth.token) || '');
+  syncSocketAuth(socket);
+
+  // A screen that unlocked the PIN after connecting (or reconnected) reclaims
+  // staff access without dropping the socket.
+  socket.on('authenticate', (payload, ack) => {
+    const token = String((payload && payload.token) || payload || '');
+    if (token) socket.data.authToken = token;
+    syncSocketAuth(socket);
+    if (typeof ack === 'function') ack({ ok: socketTokenIsValid(socket) });
+  });
+
+  // Guest screens follow the loyalty account they typed in, so a points update
+  // reaches that guest's phone and not every device on the network.
+  socket.on('watch_loyalty', (phone) => {
+    const digits = normalizePhone(phone);
+    if (digits) socket.join('loyalty:' + digits);
+  });
 
   // NOTE: the old 'update_order_status' socket write handler was removed. It had
   // no authentication and no status whitelist, so any client on the LAN could set

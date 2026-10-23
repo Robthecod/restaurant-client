@@ -38,6 +38,60 @@ function waitForServer() {
   });
 }
 
+// ─── Minimal Socket.IO client (Engine.IO v4 over Node's built-in WebSocket) ──
+// Enough to assert what a browser on the restaurant LAN actually receives.
+function openSocket(base, token) {
+  return new Promise((resolve, reject) => {
+    const url = base.replace(/^http/, 'ws') + '/socket.io/?EIO=4&transport=websocket';
+    const ws = new WebSocket(url);
+    const events = [];
+    const timer = setTimeout(() => reject(new Error('socket did not connect')), 10000);
+
+    const client = {
+      events,
+      send: (name, payload) => ws.send('42' + JSON.stringify([name, payload])),
+      close: () => ws.close(),
+    };
+
+    ws.addEventListener('message', (msg) => {
+      const data = String(msg.data);
+      if (data.startsWith('0')) {
+        // Engine.IO open → connect to the default namespace, with the staff
+        // token in the handshake when we have one (same as socket-client.js).
+        ws.send('40' + (token ? JSON.stringify({ token }) : ''));
+        return;
+      }
+      if (data === '2') {
+        ws.send('3'); // ping → pong
+        return;
+      }
+      if (data.startsWith('40')) {
+        clearTimeout(timer);
+        resolve(client);
+        return;
+      }
+      if (data.startsWith('42')) {
+        const [name, payload] = JSON.parse(data.slice(2));
+        events.push({ name, payload });
+      }
+    });
+    ws.addEventListener('error', () => {
+      clearTimeout(timer);
+      reject(new Error('socket error'));
+    });
+  });
+}
+
+async function waitForEvent(socket, name, ms = 3000) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    const hit = socket.events.find((e) => e.name === name);
+    if (hit) return hit.payload;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return null;
+}
+
 before(async () => {
   // The suite places real orders, so snapshot the data files and restore them
   // afterwards — repeated runs then start from exactly the same state.
@@ -59,6 +113,11 @@ after(async () => {
   await new Promise((resolve) => setTimeout(resolve, 200));
   for (const [file, contents] of Object.entries(dataBackup)) {
     fs.writeFileSync(path.join(DATA_DIR, file), contents);
+  }
+  // The auth test toggles order auth; a settings.json the suite created must
+  // not survive it, or every later run starts with the gate switched on.
+  if (!dataBackup['settings.json']) {
+    fs.rmSync(path.join(DATA_DIR, 'settings.json'), { force: true });
   }
 });
 
@@ -484,6 +543,9 @@ test('order auth: manager toggle, staff tokens, single-use table tokens', async 
   try {
     await waitFor();
 
+    // A phone already watching while auth is OFF (the normal default)
+    const preexisting = await openSocket(B2);
+
     // Starts OFF — disabled is the default everywhere
     const initial = await (await fetch(`${B2}/api/settings`)).json();
     assert.strictEqual(initial.orderAuth, false, 'order auth is off by default');
@@ -654,6 +716,112 @@ test('order auth: manager toggle, staff tokens, single-use table tokens', async 
     const ledgerAuthed = await fetch(`${B2}/api/loyalty/ledger`, { headers: { 'x-auth-token': token } });
     assert.strictEqual(ledgerAuthed.status, 200, 'staff token can read the ledger');
 
+    // ── Live socket stream is staff-only while auth is ON ──
+    const guestSocket = await openSocket(B2);
+    const lateSocket = await openSocket(B2); // PIN entered after connecting
+    const staffSocket = await openSocket(B2, token);
+
+    const toCooking = await fetch(`${B2}/api/orders/${seedOrder.id}/status`, {
+      method: 'PUT',
+      headers: staffHeaders,
+      body: JSON.stringify({ status: 'cooking' }),
+    });
+    assert.strictEqual(toCooking.status, 200);
+
+    const staffEvent = await waitForEvent(staffSocket, 'order_status_updated');
+    assert.ok(staffEvent, 'a socket holding the staff token receives live order updates');
+    assert.strictEqual(staffEvent.customerPhone, '9876543210', 'staff see the full order over the socket');
+
+    // A brand-new order (the loudest payload — it carries the phone) is staff-only
+    const fresh = await fetch(`${B2}/api/orders`, {
+      method: 'POST',
+      headers: staffHeaders,
+      body: JSON.stringify({
+        tableNumber: '56',
+        waiterName: 'Test',
+        customerPhone: '9876543211',
+        items: [{ name: item.name, quantity: 1 }],
+      }),
+    });
+    assert.strictEqual(fresh.status, 201);
+    const freshOrder = await fresh.json();
+
+    const kitchenHit = await waitForEvent(staffSocket, 'kitchen_new_order');
+    assert.ok(kitchenHit, 'staff sockets receive new orders');
+    assert.strictEqual(kitchenHit.customerPhone, '9876543211', 'staff get the phone with the order');
+
+    await fetch(`${B2}/api/orders/${freshOrder.id}`, { method: 'DELETE', headers: { 'x-auth-token': token } });
+    assert.ok(await waitForEvent(staffSocket, 'order_deleted'), 'staff sockets receive deletions');
+
+    const guestStatus = await waitForEvent(guestSocket, 'order_status_updated');
+    assert.ok(guestStatus, 'an unauthenticated socket still gets order status');
+    assert.ok(!('customerPhone' in guestStatus), 'guest socket payload carries no phone');
+    assert.ok(!('customerName' in guestStatus), 'guest socket payload carries no name');
+
+    const staffOnly = ['order_updated', 'kitchen_new_order', 'waiter_order_ready', 'order_deleted'];
+    assert.deepStrictEqual(
+      guestSocket.events.filter((e) => staffOnly.includes(e.name)).map((e) => e.name),
+      [],
+      'no staff-only order payload reaches an unauthenticated socket'
+    );
+    assert.deepStrictEqual(
+      preexisting.events.filter((e) => staffOnly.includes(e.name)).map((e) => e.name),
+      [],
+      'a socket connected before auth was enabled is downgraded when it flips on'
+    );
+
+    // A screen that unlocks the PIN after connecting claims access live.
+    // Drop the redacted guest events it already collected first.
+    lateSocket.events.length = 0;
+    lateSocket.send('authenticate', { token });
+    const toReady = await fetch(`${B2}/api/orders/${seedOrder.id}/status`, {
+      method: 'PUT',
+      headers: staffHeaders,
+      body: JSON.stringify({ status: 'ready' }),
+    });
+    assert.strictEqual(toReady.status, 200);
+
+    const lateStatus = await waitForEvent(lateSocket, 'order_status_updated');
+    assert.ok(lateStatus, 'authenticating upgrades a live socket');
+    assert.strictEqual(lateStatus.customerPhone, '9876543210', 'the upgraded socket now sees the full order');
+    assert.ok(await waitForEvent(lateSocket, 'waiter_order_ready'), 'upgraded socket gets waiter alerts');
+
+    // Points pushes follow the number a guest asked to watch, not the LAN
+    const otherGuest = await openSocket(B2);
+    guestSocket.send('watch_loyalty', '9876543210');
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Placing an order with a phone re-publishes that customer's record
+    const ordered = await fetch(`${B2}/api/orders`, {
+      method: 'POST',
+      headers: staffHeaders,
+      body: JSON.stringify({
+        tableNumber: '57',
+        waiterName: 'Test',
+        customerPhone: '9876543210',
+        items: [{ name: item.name, quantity: 1 }],
+      }),
+    });
+    assert.strictEqual(ordered.status, 201);
+    const loyaltyOrder = await ordered.json();
+
+    assert.ok(await waitForEvent(guestSocket, 'loyalty_updated'), 'the watching guest gets its points update');
+    assert.ok(await waitForEvent(staffSocket, 'loyalty_updated'), 'staff see loyalty changes');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepStrictEqual(
+      otherGuest.events.filter((e) => e.name === 'loyalty_updated'),
+      [],
+      'a guest watching no number receives no customer identity'
+    );
+
+    await fetch(`${B2}/api/orders/${loyaltyOrder.id}`, { method: 'DELETE', headers: { 'x-auth-token': token } });
+
+    guestSocket.close();
+    lateSocket.close();
+    staffSocket.close();
+    otherGuest.close();
+    preexisting.close();
+
     await fetch(`${B2}/api/orders/${seedOrder.id}`, { method: 'DELETE', headers: { 'x-auth-token': token } });
 
     // Manager turns it back off — orders work openly again
@@ -670,6 +838,20 @@ test('order auth: manager toggle, staff tokens, single-use table tokens', async 
       body: JSON.stringify({ tableNumber: '54', items: [{ name: item.name, quantity: 1 }] }),
     });
     assert.strictEqual(reopened.status, 201, 'with auth off anyone can order again');
+
+    // Auth off restores the old behaviour: every socket behaves as staff
+    const reopenedOrder = await reopened.json();
+    const plainSocket = await openSocket(B2);
+    await fetch(`${B2}/api/orders/${reopenedOrder.id}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'cooking' }),
+    });
+    assert.ok(
+      await waitForEvent(plainSocket, 'order_status_updated'),
+      'with auth off an ordinary socket receives order updates again'
+    );
+    plainSocket.close();
   } finally {
     child2.kill();
     await new Promise((r) => setTimeout(r, 200));
